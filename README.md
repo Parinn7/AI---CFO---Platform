@@ -54,6 +54,10 @@ The platform helps businesses analyze financial data, forecast cash flow, simula
 - Nirmam Parikh
 - Parin Patel
 
+### Supply Chain Management - Operations & Cost Analysis
+- Sarthak Pasari
+
+
 ---
 
 ## Project Timeline
