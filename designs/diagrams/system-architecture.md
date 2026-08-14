@@ -108,6 +108,10 @@ This is a non-negotiable architectural boundary, not a style preference:
 
 PostgreSQL as the single primary data store for MVP (schema detailed separately in `database/schema.md`). No separate analytics DB needed at this scale — computed KPIs can be cached/snapshotted in a `kpi_snapshots` table rather than requiring a full OLAP setup.
 
+**Implementation notes (Phase 1.1):**
+- Async access via SQLAlchemy 2.0 with the **psycopg 3** driver (`postgresql+psycopg://…`), chosen over asyncpg for cleaner Python 3.14 wheel support. Connection config lives in `backend/app/core/config.py`; the engine/session/`Base` in `backend/app/core/database.py`.
+- The backend **boots without a database**: if `DATABASE_URL` is unset (Postgres not yet provisioned), the app still starts and the `GET /api/v1/health` endpoint reports `database: "not_configured"` (vs `connected`/`unreachable`). This lets the frontend verify backend reachability before the DB exists; tables/models are introduced from Phase 2.
+
 ## 7. Third-Party Integrations
 
 | Integration | Purpose | Notes |

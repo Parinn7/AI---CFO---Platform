@@ -19,7 +19,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 ---
 
 ## Phase 1 — Project Scaffolding
-- [ ] **1.1** Initialize Next.js + Tailwind frontend, FastAPI backend with domain-module structure, PostgreSQL connection. Confirm both sides boot and talk to each other.
+- [x] **1.1** Initialize Next.js + Tailwind frontend, FastAPI backend with domain-module structure, PostgreSQL connection. Confirm both sides boot and talk to each other.
 
 ## Phase 2 — Auth & Company Setup
 - [ ] **2.1** `users` and `companies` tables per `schema.md`.

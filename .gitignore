@@ -7,6 +7,9 @@ dist/
 __pycache__/
 venv/
 .env
+.env.local
+.pytest_cache/
+*.egg-info/
 
 # Mac
 .DS_Store
@@ -21,6 +24,10 @@ out/
 # IDE
 .vscode/
 .idea/
+
+# create-next-app agent boilerplate (regenerated on build; not used here)
+frontend/AGENTS.md
+frontend/CLAUDE.md
 
 # Misc
 coverage/

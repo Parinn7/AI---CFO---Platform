@@ -1,0 +1,20 @@
+# Lower-bound pins: this project runs on Python 3.14, so we let pip resolve the
+# newest wheels that support it rather than hard-pinning older releases that
+# have no 3.14 wheels.
+
+# Web framework
+fastapi>=0.115.6
+uvicorn[standard]>=0.34.0
+
+# Database (SQLAlchemy async via psycopg 3 — good Python 3.14 wheel support)
+SQLAlchemy>=2.0.36
+psycopg[binary]>=3.2.10
+
+# Config / validation
+pydantic>=2.10.4
+pydantic-settings>=2.7.0
+python-dotenv>=1.0.1
+
+# Testing
+pytest>=8.3.4
+httpx>=0.28.1
