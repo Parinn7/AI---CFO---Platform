@@ -19,17 +19,18 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 1 complete (1.1 scaffolding). Both stacks boot and talk to each other. Next: Phase 2 (auth + company setup).
+**Phase:** Phase 1 complete. Phase 2.1 (users + companies tables) is **code-complete and verified offline, pending a live migration** against Supabase — see Known Issues. Next runnable step: set `DATABASE_URL` from Supabase, then `alembic upgrade head`.
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
 - ✅ **Backend** — FastAPI, domain-module structure (`app/core` + `auth`/`companies`/`transactions`/`financial_engine`/`scenarios`/`ai_cfo`/`reports` placeholders). Boots on `:8000`; `GET /api/v1/health` live; 2 pytest smoke tests pass.
 - ✅ **Frontend** — Next.js 16 (App Router) + React 19 + Tailwind v4 + TypeScript. Boots on `:3000`; landing page renders a live `BackendStatus` panel that fetches backend health. Lint + production build pass.
 - ✅ **Frontend ↔ backend** confirmed: CORS allows `:3000` (preflight 200 + correct allow-origin header); health reachable end-to-end.
-- ⚠️ **No database provisioned** — no local Postgres/Docker in this environment. DB connection layer is built (SQLAlchemy async + psycopg 3, reads `DATABASE_URL`); backend boots without it and health reports `database: "not_configured"`. Real Postgres + tables land in Phase 2.
+- ✅ **DB layer (2.1)** — SQLAlchemy models `User`/`Company` per `schema.md` §1–2 (UUID PK + `created_at`/`updated_at` mixins, INR default, single-owner FK, fiscal-month check constraint). Alembic set up; migration `0001` creates both tables. Rendered Postgres DDL verified offline; 3 model tests pass.
+- ⚠️ **Supabase not yet provisioned** — chosen as the managed Postgres host, but no project/connection string yet, so the migration hasn't been applied and no tables exist live. Backend still boots; health reports `database: "not_configured"`.
 - ❌ Wireframes deliberately deferred until after a working end-to-end version exists.
 
-**Stack versions:** Node 22, Python 3.14, Next 16.3, React 19.2, Tailwind 4, FastAPI 0.141, SQLAlchemy 2.0, psycopg 3.3. Backend deps use lower-bound pins (`>=`) so pip resolves Python-3.14-compatible wheels.
+**Stack versions:** Node 22, Python 3.14, Next 16.3, React 19.2, Tailwind 4, FastAPI 0.141, SQLAlchemy 2.0, psycopg 3.3, Alembic 1.14+. Backend deps use lower-bound pins (`>=`) so pip resolves Python-3.14-compatible wheels.
 
 **Build approach:** Get the whole system functionally working end-to-end with a decent (not final) frontend first. Polish/UX pass comes later, wireframes included.
 
@@ -37,10 +38,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **2.1** — `users` and `companies` tables per `schema.md`. This is the point Postgres actually gets provisioned and wired in: stand up a DB (local or hosted), set `DATABASE_URL` in `backend/.env`, add a migration tool (Alembic) + the two ORM models, and confirm `GET /api/v1/health` flips to `database: "connected"`.
-2. **2.2** — Signup + login (JWT sessions), password hashing (FR-1.1, FR-1.2).
-3. **2.3** — Company profile creation/management UI + API (FR-1.3).
-4. **2.4** — Password reset flow, email stubbed if no service (FR-1.4).
+0. **Finish 2.1 (needs user):** create the Supabase project, put its connection string in `backend/.env` as `DATABASE_URL` (`postgresql+psycopg://…`), run `alembic upgrade head`, confirm `GET /api/v1/health` → `database: "connected"` and the two tables exist. Then check off 2.1.
+1. **2.2** — Signup + login (JWT sessions), password hashing (FR-1.1, FR-1.2).
+2. **2.3** — Company profile creation/management UI + API (FR-1.3).
+3. **2.4** — Password reset flow, email stubbed if no service (FR-1.4).
 
 Then Phase 3 (data input) onward. Order follows the dependency chain: nothing downstream works without auth + data + the financial engine first.
 
@@ -48,13 +49,21 @@ Then Phase 3 (data input) onward. Order follows the dependency chain: nothing do
 
 ## Known Issues
 
-- **No database yet.** No local Postgres or Docker in the dev environment, so nothing is actually persisted. The connection layer + `DATABASE_URL` config exist and the app degrades gracefully (health → `not_configured`). Provisioning Postgres is the first job of task 2.1.
+- **Supabase not provisioned → migration not applied.** 2.1's models + Alembic migration `0001` are written and verified offline, but no Supabase project/`DATABASE_URL` exists yet, so no tables are live. Blocks finishing 2.1 and all of Phase 2. Resolution: user creates the Supabase project + shares the connection string, then `alembic upgrade head`. Migration `0001` correctness is verified only via offline DDL render — not yet executed against real Postgres.
 - **Health-panel browser fetch verified only indirectly.** Backend health, CORS preflight, and the page HTML/JS were each confirmed via curl; the actual in-browser fetch (client-side JS) wasn't exercised with a real browser. All dependencies of it are green, so risk is low.
 - `frontend/AGENTS.md` + `frontend/CLAUDE.md` are regenerated by `create-next-app`/Next build; gitignored and not part of this project's conventions.
 
 ---
 
 ## Log
+
+### 2026-08-14 — Phase 2.1 (code): users + companies models + Alembic (Supabase)
+- **DB choice:** Supabase as managed Postgres (managed DB only; not Supabase Auth). Documented in architecture §6 and READMEs.
+- **Models:** `app/core/models.py` mixins (UUID PK, `created_at`/`updated_at`); `app/auth/models.py` `User`; `app/companies/models.py` `Company` — per `schema.md` §1–2 (INR default, single-owner FK `ON DELETE CASCADE`, fiscal-month check constraint, unique email index).
+- **Migrations:** Alembic wired for async psycopg 3, URL injected from settings (nothing secret in `alembic.ini`). Migration `0001_users_and_companies` hand-written; `env.py` imports models for autogenerate.
+- **Verified (no live DB):** models register on `Base.metadata`; `alembic upgrade head --sql` renders correct Postgres DDL (UUID/TEXT/timestamptz/FK/check/unique index); 3 new model tests pass (5 total).
+- **NOT done:** migration not applied to a real DB — no Supabase project yet. 2.1 left **unchecked** pending that. Also added `alembic>=1.14` to requirements.
+- **Docs updated:** architecture §6, backend README (migrations + Supabase setup), `.env.example`, progress. Committed the pending SRS FR-2.3/FR-2.6 refinement per user request.
 
 ### 2026-08-14 — Phase 1.1: project scaffolding (frontend + backend boot end-to-end)
 - **Backend:** FastAPI app with domain-module layout per architecture §3 (`app/core` for config + async DB; `auth`/`companies`/`transactions`/`financial_engine`/`scenarios`/`ai_cfo`/`reports` as documented placeholders). Added `GET /api/v1/health` (reports DB status) + CORS. SQLAlchemy 2.0 async engine via psycopg 3, reads `DATABASE_URL`; boots fine with no DB. `requirements.txt`, `.env.example`, README, and 2 pytest smoke tests (both pass).

@@ -9,15 +9,17 @@ so each feature is self-contained.
 backend/
   app/
     main.py              # FastAPI app: CORS, health endpoint, router wiring
-    core/                # config (env/settings) + database (async engine, session, Base)
-    auth/                # Phase 2 — signup, login, JWT (FR-1.x)
-    companies/           # Phase 2 — company profile CRUD (FR-1.3)
+    core/                # config, database (async engine, session, Base), shared model mixins
+    auth/                # Phase 2 — User model; signup, login, JWT (FR-1.x)
+    companies/           # Phase 2 — Company model; company profile CRUD (FR-1.3)
     transactions/        # Phase 3 — upload parsing, manual entry, categorization (FR-2.x)
     financial_engine/    # Phase 4 — deterministic KPI/cash-flow/anomaly math (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
+  migrations/            # Alembic: env.py + versions/ (0001 = users + companies)
   tests/                 # pytest smoke + feature tests
+  alembic.ini
   requirements.txt
   .env.example
 ```
@@ -49,6 +51,38 @@ uvicorn app.main:app --reload --port 8000
 The health endpoint reports database connectivity as `connected`,
 `not_configured` (no `DATABASE_URL` set yet), or `unreachable`. The app boots
 regardless, so the frontend can confirm reachability before Postgres exists.
+
+## Database & migrations (Supabase + Alembic)
+
+Postgres is hosted on **Supabase** (managed Postgres only — the app uses its own
+SQLAlchemy models and JWT auth, not Supabase Auth). ORM models live in their
+domain modules (`app/auth/models.py`, `app/companies/models.py`) on the shared
+`Base`; schema changes are versioned with Alembic under `migrations/`.
+
+**One-time Supabase setup:**
+1. Create a project at supabase.com.
+2. Project Settings → Database → Connection string → copy the URI.
+3. Put it in `backend/.env` as `DATABASE_URL`, changing the scheme to
+   `postgresql+psycopg://…` (see `.env.example`). Use the Direct connection or
+   Session pooler for migrations.
+
+**Apply migrations:**
+
+```bash
+source venv/bin/activate
+alembic upgrade head          # creates users + companies
+alembic downgrade -1          # roll back one revision
+alembic current               # show applied revision
+alembic upgrade head --sql    # render DDL without connecting (offline)
+```
+
+After `alembic upgrade head`, `GET /api/v1/health` reports `database: "connected"`.
+
+New models must be imported in `migrations/env.py` so autogenerate sees them:
+
+```bash
+alembic revision --autogenerate -m "add <thing>"
+```
 
 ## Test
 

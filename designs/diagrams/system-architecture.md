@@ -108,9 +108,11 @@ This is a non-negotiable architectural boundary, not a style preference:
 
 PostgreSQL as the single primary data store for MVP (schema detailed separately in `database/schema.md`). No separate analytics DB needed at this scale — computed KPIs can be cached/snapshotted in a `kpi_snapshots` table rather than requiring a full OLAP setup.
 
-**Implementation notes (Phase 1.1):**
+**Implementation notes (Phase 1.1 / 2.1):**
+- Hosted on **Supabase** (managed Postgres) — used purely as the database; the app keeps its own SQLAlchemy models and JWT auth, not Supabase Auth.
 - Async access via SQLAlchemy 2.0 with the **psycopg 3** driver (`postgresql+psycopg://…`), chosen over asyncpg for cleaner Python 3.14 wheel support. Connection config lives in `backend/app/core/config.py`; the engine/session/`Base` in `backend/app/core/database.py`.
-- The backend **boots without a database**: if `DATABASE_URL` is unset (Postgres not yet provisioned), the app still starts and the `GET /api/v1/health` endpoint reports `database: "not_configured"` (vs `connected`/`unreachable`). This lets the frontend verify backend reachability before the DB exists; tables/models are introduced from Phase 2.
+- The backend **boots without a database**: if `DATABASE_URL` is unset, the app still starts and `GET /api/v1/health` reports `database: "not_configured"` (vs `connected`/`unreachable`). Lets the frontend verify backend reachability before the DB exists.
+- Schema is versioned with **Alembic** (`backend/migrations/`). ORM models live in their domain modules (`app/auth/models.py`, `app/companies/models.py`) on the shared `Base`; every table uses a UUID PK + `created_at`/`updated_at` via mixins in `app/core/models.py`. Migration `0001` creates `users` + `companies`.
 
 ## 7. Third-Party Integrations
 

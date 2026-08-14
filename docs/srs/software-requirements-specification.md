@@ -78,11 +78,14 @@ The platform is a standalone web application (Next.js frontend, FastAPI backend,
 
 ### 3.2 Data Input
 
+The platform supports two equally first-class data input paths — neither is a fallback for the other. Many founders/SME owners do not know how to prepare a formal financial statement (income statement, balance sheet, cash flow statement); the manual entry path exists specifically so those users can still get full KPIs and reports without ever needing to produce or upload a document.
+
 | ID | Requirement |
 |---|---|
 | FR-2.1 | The system shall allow users to upload financial documents in CSV/XLSX format |
 | FR-2.2 | The system shall parse uploaded files and map columns to standard financial categories (income, expense, date, category) |
-| FR-2.3 | The system shall allow users to manually enter raw business data (sales, purchases, salaries, rent, marketing spend, operational costs, bank transactions) through a structured form |
+| FR-2.3 | The system shall allow users to manually enter raw business data (sales, purchases, salaries, rent, marketing spend, operational costs, bank transactions) through a **guided, question-based form** — plain-language prompts (e.g. "How much did you spend on rent this month?") rather than a blank accounting-style entry table, so no prior financial-statement knowledge is required |
+| FR-2.6 | Once enough manual entries exist for a given period, the system shall automatically make that period's KPIs, dashboard, and reports available — identical in output to the upload path. The user should never need to "convert" manual entries into a document first |
 | FR-2.4 | The system shall validate uploaded/entered data for obvious errors (missing dates, non-numeric amounts, duplicate rows) and flag them to the user |
 | FR-2.5 | The system shall allow users to edit or delete previously entered/uploaded data |
 
