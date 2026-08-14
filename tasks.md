@@ -22,7 +22,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **1.1** Initialize Next.js + Tailwind frontend, FastAPI backend with domain-module structure, PostgreSQL connection. Confirm both sides boot and talk to each other.
 
 ## Phase 2 — Auth & Company Setup
-- [ ] **2.1** `users` and `companies` tables per `schema.md`.
+- [x] **2.1** `users` and `companies` tables per `schema.md`.
 - [ ] **2.2** Signup + login (JWT sessions), password hashing (FR-1.1, FR-1.2).
 - [ ] **2.3** Company profile creation/management UI + API (FR-1.3).
 - [ ] **2.4** Password reset flow — stub email sending if no email service configured (FR-1.4).

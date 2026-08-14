@@ -8,6 +8,7 @@ uvicorn[standard]>=0.34.0
 
 # Database (SQLAlchemy async via psycopg 3 — good Python 3.14 wheel support)
 SQLAlchemy>=2.0.36
+greenlet>=3.1.1          # required by SQLAlchemy async (not auto-installed on Python 3.14)
 psycopg[binary]>=3.2.10
 alembic>=1.14.0
 
