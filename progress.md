@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 2.3 **complete** — owner-scoped company profile CRUD API + create/edit UI, working end-to-end against live Supabase. Next: 2.4 (password reset flow, email stubbed).
+**Phase:** Phase 2 **COMPLETE** (2.4 done) — full auth: signup/login (JWT) + company profiles + password reset (email stubbed), all working end-to-end against live Supabase. Next: Phase 3 (data input) — starting with 3.1 (`categories` table + seed).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -29,7 +29,8 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **DB layer (2.1)** — SQLAlchemy models `User`/`Company` per `schema.md` §1–2 (UUID PK + `created_at`/`updated_at` mixins, INR default, single-owner FK, fiscal-month check constraint). Alembic migration `0001` **applied to Supabase**; `users`/`companies`/`alembic_version` tables verified live with correct types + constraints. 3 model tests pass.
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
 - ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
-- ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select. **28 backend tests pass** (7 new company endpoint tests incl. owner-scoping); frontend lint + build clean; all 6 routes serve 200.
+- ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select.
+- ✅ **Password reset (2.4)** — Backend: `POST /auth/password-reset/{request,confirm}`. Request always returns 200 (no enumeration); with no email service the link is logged and returned inline in `development`. Reset tokens are stateless JWTs with a `type: reset` claim + a fingerprint (`pwf`) of the current password hash → single-use (self-invalidate on password change), no DB table. Access/reset tokens now both carry a `type` claim each decoder checks (no cross-use). Frontend: `/forgot-password` + `/reset-password` (token from URL, Suspense-wrapped), "Forgot password?" link on login, success banner via `?reset=1`. **39 backend tests pass** (11 new: 5 security unit + 6 reset endpoint incl. single-use); frontend lint + build clean; all 8 routes serve 200.
 - ❌ Wireframes deliberately deferred until after a working end-to-end version exists.
 
 **Stack versions:** Node 22, Python 3.14, Next 16.3, React 19.2, Tailwind 4, FastAPI 0.141, SQLAlchemy 2.0, psycopg 3.3, Alembic 1.14+. Backend deps use lower-bound pins (`>=`) so pip resolves Python-3.14-compatible wheels.
@@ -40,9 +41,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **2.4** — Password reset flow (FR-1.4). Stub email sending if no email service configured (log/return the reset link/token instead of sending). Add reset-request + reset-confirm endpoints under `app/auth/`, a short-lived reset token, and matching request/confirm pages on the frontend.
+1. **3.1** — `categories` table + seed the default INR/SME category set (`schema.md` §3: Revenue, Payroll, Rent, Marketing, Software/Tools, Operations, Other; `income`|`expense`). Add the `Category` model (nullable `company_id` → null = system default), an Alembic migration `0002`, apply it to Supabase, and seed the defaults.
+2. **3.2** — CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2).
 
-Then Phase 3 (data input) onward. Order follows the dependency chain: nothing downstream works without auth + data + the financial engine first.
+Phase 2 (auth + company setup) is fully done. Phase 3 (data input) is next; order follows the dependency chain — nothing downstream works without data + the financial engine first.
 
 ---
 
@@ -56,6 +58,13 @@ Then Phase 3 (data input) onward. Order follows the dependency chain: nothing do
 ---
 
 ## Log
+
+### 2026-08-20 — Phase 2.4 DONE: password reset flow (email stubbed), end-to-end — Phase 2 complete
+- **Backend:** `security.py` gained reset-token helpers — `create_password_reset_token` / `decode_password_reset_token` / `password_fingerprint`; both token kinds now carry a `type` claim (`access`/`reset`) that each decoder verifies (a reset token can't be replayed as a session token, or vice versa). Reset tokens embed `pwf` = fingerprint of the current password hash → single-use with **no DB table** (stops matching once the password changes). `service.py` — `create_password_reset` (returns token or None, no enumeration) + `reset_password` (validates token, checks fingerprint, rehashes). `router.py` — `POST /auth/password-reset/request` (always 200; logs link, returns it inline in `development`) + `/confirm` (400 on bad/used token). New config: `reset_token_expire_minutes` (30), `frontend_base_url`.
+- **Frontend:** `/forgot-password` (surfaces the dev reset link) + `/reset-password` (token from URL, `useSearchParams` wrapped in `Suspense`). `AuthForm` gained a "Forgot password?" link (login mode) + a `notice` prop; `/login` is now a server component reading `?reset=1` to show a success banner (avoids a Suspense boundary on the form). `lib/api.ts` + `requestPasswordReset`/`resetPassword`.
+- **Verified:** 39 backend tests pass (11 new — 5 security unit incl. access/reset cross-use rejection, 6 reset-endpoint incl. single-use + no-enumeration). Full flow curl'd against **live Supabase**: request (dev returns token) → unknown-email (no token) → confirm 200 → old-pw login 401 → new-pw login 200 → token reuse 400; test user cleaned up. Frontend lint + build + TS clean; all 8 routes serve 200 (incl. `/forgot-password`, `/reset-password?token=…`, `/login?reset=1`).
+- **Docs updated:** architecture §3 (reset endpoints + token-type/single-use note), backend README (reset rows + how to wire real email later), frontend README, `.env.example` (`FRONTEND_BASE_URL`), `tasks.md` 2.4 → [x].
+- **Design note:** chose stateless single-use JWT reset tokens (fingerprint trick) over a `password_reset_tokens` table — no migration needed, self-invalidating. Trade-off: can't list/revoke outstanding tokens server-side, acceptable for the prototype. Real email delivery is a one-line swap in the router (documented).
 
 ### 2026-08-20 — Phase 2.3 DONE: company profile CRUD API + UI, owner-scoped, end-to-end
 - **Backend (`app/companies/`):** `schemas.py` — `CompanyCreate`/`CompanyUpdate` (fiscal month validated 1–12) / `CompanyRead`; currency deliberately *not* a client input (INR-only, DB `server_default`). `service.py` — create / list / `get_company_for_user` / `update_company`, every query filtered by `owner_user_id` (NFR-3). `router.py` — `POST`/`GET /companies`, `GET`/`PATCH /companies/{id}`, all `Depends(get_current_user)`; cross-user access returns `404` (existence not leaked). Registered under `/api/v1/companies` in `main.py`.

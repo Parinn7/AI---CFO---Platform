@@ -134,6 +134,32 @@ export function getMe(token: string): Promise<AuthUser> {
   return apiGet<AuthUser>("/api/v1/auth/me", token);
 }
 
+export type PasswordResetRequestResponse = {
+  message: string;
+  // Present only in development (no email service) so the flow can be completed.
+  reset_token?: string | null;
+  reset_link?: string | null;
+};
+
+export function requestPasswordReset(
+  email: string,
+): Promise<PasswordResetRequestResponse> {
+  return apiPost<PasswordResetRequestResponse>(
+    "/api/v1/auth/password-reset/request",
+    { email },
+  );
+}
+
+export function resetPassword(
+  token: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  return apiPost<{ message: string }>("/api/v1/auth/password-reset/confirm", {
+    token,
+    new_password: newPassword,
+  });
+}
+
 // --- Companies (Phase 2.3) ---
 
 export type Company = {

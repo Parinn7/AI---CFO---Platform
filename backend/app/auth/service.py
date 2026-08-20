@@ -13,7 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.models import User
 from app.auth.schemas import SignupRequest
-from app.auth.security import hash_password, verify_password
+from app.auth.security import (
+    create_password_reset_token,
+    decode_password_reset_token,
+    hash_password,
+    password_fingerprint,
+    verify_password,
+)
 
 
 class EmailAlreadyRegisteredError(Exception):
@@ -59,3 +65,42 @@ async def authenticate_user(
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+
+async def create_password_reset(db: AsyncSession, email: str) -> str | None:
+    """Issue a password-reset token for `email`, or None if no such user.
+
+    Callers must NOT leak the None-vs-token distinction to the client (avoid
+    account enumeration) — respond identically either way.
+    """
+    user = await get_user_by_email(db, email.lower())
+    if user is None:
+        return None
+    return create_password_reset_token(str(user.id), user.password_hash)
+
+
+async def reset_password(db: AsyncSession, token: str, new_password: str) -> bool:
+    """Set a new password if the reset token is valid and unused. Returns success.
+
+    The token's embedded fingerprint must still match the user's current
+    password hash; a mismatch means the token was already used (password
+    already changed) or is otherwise stale.
+    """
+    decoded = decode_password_reset_token(token)
+    if decoded is None:
+        return False
+    subject, fingerprint = decoded
+    try:
+        user_id = uuid.UUID(subject)
+    except ValueError:
+        return False
+
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        return False
+    if password_fingerprint(user.password_hash) != fingerprint:
+        return False
+
+    user.password_hash = hash_password(new_password)
+    await db.commit()
+    return True

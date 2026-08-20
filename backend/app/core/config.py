@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-insecure-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
+    # Password-reset links are short-lived (task 2.4, FR-1.4).
+    reset_token_expire_minutes: int = 30
 
     # --- LLM provider (used from Phase 7 onward) ---
     llm_provider: str = "openai"
@@ -41,6 +43,9 @@ class Settings(BaseSettings):
     # --- CORS ---
     # Comma-separated list of allowed frontend origins.
     cors_origins: str = "http://localhost:3000"
+
+    # Public base URL of the frontend — used to build password-reset links.
+    frontend_base_url: str = "http://localhost:3000"
 
     @property
     def cors_origins_list(self) -> list[str]:

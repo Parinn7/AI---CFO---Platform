@@ -32,7 +32,7 @@ const COPY: Record<Mode, { title: string; cta: string; alt: string; altHref: str
   },
 };
 
-export function AuthForm({ mode }: { mode: Mode }) {
+export function AuthForm({ mode, notice }: { mode: Mode; notice?: string }) {
   const router = useRouter();
   const { login, signup } = useAuth();
   const copy = COPY[mode];
@@ -71,6 +71,15 @@ export function AuthForm({ mode }: { mode: Mode }) {
     <div className="w-full max-w-sm rounded-xl border border-black/10 dark:border-white/15 p-6">
       <h1 className="text-xl font-semibold">{copy.title}</h1>
 
+      {notice && (
+        <p
+          className="mt-4 rounded-md border border-green-600/30 bg-green-600/10 p-2 text-sm text-green-700 dark:text-green-400"
+          role="status"
+        >
+          {notice}
+        </p>
+      )}
+
       <form onSubmit={onSubmit} className="mt-5 space-y-4">
         {mode === "signup" && (
           <div className="space-y-1">
@@ -104,9 +113,19 @@ export function AuthForm({ mode }: { mode: Mode }) {
         </div>
 
         <div className="space-y-1">
-          <label htmlFor="password" className="block text-sm font-medium">
-            Password
-          </label>
+          <div className="flex items-center justify-between">
+            <label htmlFor="password" className="block text-sm font-medium">
+              Password
+            </label>
+            {mode === "login" && (
+              <Link
+                href="/forgot-password"
+                className="text-xs text-black/50 dark:text-white/50 underline hover:no-underline"
+              >
+                Forgot password?
+              </Link>
+            )}
+          </div>
           <input
             id="password"
             type="password"

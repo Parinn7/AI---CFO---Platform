@@ -12,6 +12,8 @@ frontend/
     page.tsx           # landing page — backend connectivity + auth nav
     login/             # /login
     signup/            # /signup
+    forgot-password/   # /forgot-password — request a reset link (FR-1.4)
+    reset-password/    # /reset-password — set a new password from a token (FR-1.4)
     dashboard/         # /dashboard — auth-guarded placeholder (real dashboard: Phase 5)
     company/           # /company — create/edit company profile (FR-1.3)
     globals.css
@@ -34,6 +36,11 @@ exposes `login`/`signup`/`logout` through the `useAuth()` hook. `/login` and
 `/signup` share one `AuthForm`; `/dashboard` redirects to `/login` without a
 valid session. (localStorage is a pragmatic prototype choice — a hardened build
 would use an httpOnly cookie.)
+
+Password reset (FR-1.4): `/forgot-password` requests a link, `/reset-password`
+(reads the token from the URL) sets the new password. With no email service, the
+backend returns the link inline in development, which `/forgot-password` surfaces
+so the flow is completable end-to-end.
 
 ## Company profile (Phase 2.3)
 

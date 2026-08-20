@@ -70,6 +70,9 @@ The system follows a standard three-tier architecture with an integrated AI laye
   - `POST /api/v1/auth/signup` — create account, returns `{access_token, token_type, user}` (auto-login); `409` if email taken.
   - `POST /api/v1/auth/login` — verify credentials, returns the same token payload; `401` on bad credentials.
   - `GET /api/v1/auth/me` — returns the authenticated user; requires `Authorization: Bearer <token>`.
+  - `POST /api/v1/auth/password-reset/request` — always `200` with a generic message (no account enumeration). No email provider is wired up, so the reset link is logged server-side and, in `development` only, returned inline (`reset_token`/`reset_link`) so the flow is demoable without an inbox.
+  - `POST /api/v1/auth/password-reset/confirm` — sets a new password given a valid token; `400` if invalid/expired/used.
+- **Token types:** access tokens and reset tokens are both signed JWTs but carry a `type` claim (`access`/`reset`) that each decoder verifies, so one kind can't be replayed as the other. Reset tokens are stateless and single-use *without* a DB table: they embed a fingerprint (`pwf`) of the user's current password hash, which stops matching once the password changes (task 2.4).
 - **Companies:** `app/companies/` mirrors the auth split (`schemas.py`/`service.py`/`router.py`). Every endpoint depends on `get_current_user` and every query is scoped by `owner_user_id`, so a user can only see/mutate their own companies (NFR-3). `currency` is server-fixed to INR (not a client input). Implemented endpoints (task 2.3, FR-1.3):
   - `POST /api/v1/companies` — create a company profile for the current user (`201`).
   - `GET /api/v1/companies` — list the current user's companies.

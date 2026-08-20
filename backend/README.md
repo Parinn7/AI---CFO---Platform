@@ -101,6 +101,16 @@ Email + password signup/login with JWT session tokens. Passwords are bcrypt-hash
 | `POST /api/v1/auth/signup` | – | Create account; returns `{access_token, token_type, user}` (auto-login). `409` if email exists. |
 | `POST /api/v1/auth/login` | – | Verify credentials; returns the same token payload. `401` on failure. |
 | `GET /api/v1/auth/me` | Bearer | Return the authenticated user. |
+| `POST /api/v1/auth/password-reset/request` | – | Start a reset. Always `200` (no enumeration). |
+| `POST /api/v1/auth/password-reset/confirm` | – | Set a new password from a reset token. `400` if invalid/used. |
+
+**Password reset (FR-1.4):** no email service is configured, so the request
+endpoint logs the reset link and — in `development` only — returns it inline
+(`reset_token`/`reset_link`) so the flow works without an inbox. Reset tokens are
+stateless JWTs carrying a `type: reset` claim plus a fingerprint of the user's
+current password hash, which makes them single-use (they stop verifying once the
+password changes) without a DB table. To wire up real email later, replace the
+`logger.info(...)` "send" in `app/auth/router.py` with an email provider call.
 
 Send the token on protected routes as `Authorization: Bearer <access_token>`.
 `app.auth.dependencies.get_current_user` is the reusable dependency that turns
