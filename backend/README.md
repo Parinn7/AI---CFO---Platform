@@ -11,7 +11,7 @@ backend/
     main.py              # FastAPI app: CORS, health endpoint, router wiring
     core/                # config, database (async engine, session, Base), shared model mixins
     auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
-    companies/           # Phase 2 — Company model; company profile CRUD (FR-1.3)
+    companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
     transactions/        # Phase 3 — upload parsing, manual entry, categorization (FR-2.x)
     financial_engine/    # Phase 4 — deterministic KPI/cash-flow/anomaly math (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
@@ -113,6 +113,26 @@ TOKEN=$(curl -s -X POST localhost:8000/api/v1/auth/signup \
   -d '{"email":"you@example.com","password":"at-least-8-chars","full_name":"You"}' \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 curl localhost:8000/api/v1/auth/me -H "Authorization: Bearer $TOKEN"
+```
+
+## Company profiles (Phase 2.3)
+
+Owner-scoped CRUD for a user's company profile (FR-1.3). All routes require a
+Bearer token; every query is filtered by the authenticated user's id, so no one
+can read or edit another user's company (NFR-3). `currency` is always INR — the
+server ignores any client-supplied currency (INR-only MVP).
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/companies` | Create a profile (name, optional industry + fiscal-year-start-month). `201`. |
+| `GET /api/v1/companies` | List the current user's companies. |
+| `GET /api/v1/companies/{id}` | Get one; `404` if not the caller's. |
+| `PATCH /api/v1/companies/{id}` | Partial update; `404` if not owned. |
+
+```bash
+curl -X POST localhost:8000/api/v1/companies -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Acme SME","industry":"Retail","fiscal_year_start_month":4}'
 ```
 
 ## Notes

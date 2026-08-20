@@ -24,7 +24,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 ## Phase 2 — Auth & Company Setup
 - [x] **2.1** `users` and `companies` tables per `schema.md`.
 - [x] **2.2** Signup + login (JWT sessions), password hashing (FR-1.1, FR-1.2).
-- [ ] **2.3** Company profile creation/management UI + API (FR-1.3).
+- [x] **2.3** Company profile creation/management UI + API (FR-1.3).
 - [ ] **2.4** Password reset flow — stub email sending if no email service configured (FR-1.4).
 
 ## Phase 3 — Data Input

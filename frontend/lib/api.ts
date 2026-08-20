@@ -76,6 +76,26 @@ export async function apiPost<T>(
   return res.json() as Promise<T>;
 }
 
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+  token?: string,
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await errorMessage(res));
+  }
+  return res.json() as Promise<T>;
+}
+
 export function getHealth(): Promise<HealthResponse> {
   return apiGet<HealthResponse>("/api/v1/health");
 }
@@ -112,4 +132,42 @@ export function login(input: {
 
 export function getMe(token: string): Promise<AuthUser> {
   return apiGet<AuthUser>("/api/v1/auth/me", token);
+}
+
+// --- Companies (Phase 2.3) ---
+
+export type Company = {
+  id: string;
+  owner_user_id: string;
+  name: string;
+  industry: string | null;
+  fiscal_year_start_month: number | null;
+  currency: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CompanyInput = {
+  name: string;
+  industry?: string | null;
+  fiscal_year_start_month?: number | null;
+};
+
+export function listCompanies(token: string): Promise<Company[]> {
+  return apiGet<Company[]>("/api/v1/companies", token);
+}
+
+export function createCompany(
+  input: CompanyInput,
+  token: string,
+): Promise<Company> {
+  return apiPost<Company>("/api/v1/companies", input, token);
+}
+
+export function updateCompany(
+  id: string,
+  input: Partial<CompanyInput>,
+  token: string,
+): Promise<Company> {
+  return apiPatch<Company>(`/api/v1/companies/${id}`, input, token);
 }

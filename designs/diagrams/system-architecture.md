@@ -70,6 +70,11 @@ The system follows a standard three-tier architecture with an integrated AI laye
   - `POST /api/v1/auth/signup` — create account, returns `{access_token, token_type, user}` (auto-login); `409` if email taken.
   - `POST /api/v1/auth/login` — verify credentials, returns the same token payload; `401` on bad credentials.
   - `GET /api/v1/auth/me` — returns the authenticated user; requires `Authorization: Bearer <token>`.
+- **Companies:** `app/companies/` mirrors the auth split (`schemas.py`/`service.py`/`router.py`). Every endpoint depends on `get_current_user` and every query is scoped by `owner_user_id`, so a user can only see/mutate their own companies (NFR-3). `currency` is server-fixed to INR (not a client input). Implemented endpoints (task 2.3, FR-1.3):
+  - `POST /api/v1/companies` — create a company profile for the current user (`201`).
+  - `GET /api/v1/companies` — list the current user's companies.
+  - `GET /api/v1/companies/{id}` — get one; `404` if it isn't the caller's (existence not leaked).
+  - `PATCH /api/v1/companies/{id}` — partial update (name/industry/fiscal-year-start-month); `404` if not owned.
 - **Validation:** Pydantic models for all request/response schemas
 - **Background/async work:** file parsing and report generation should run as async tasks (FastAPI background tasks at MVP scale; can move to a proper task queue like Celery/RQ later if volume grows)
 

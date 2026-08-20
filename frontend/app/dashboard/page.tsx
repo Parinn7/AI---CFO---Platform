@@ -6,6 +6,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -43,17 +44,25 @@ export default function DashboardPage() {
         </p>
 
         <p className="mt-4 text-sm text-black/60 dark:text-white/60">
-          Your account is set up. Company setup and financial tools arrive in the
-          next phases.
+          Your account is set up. Next, set up your company profile — financial
+          tools arrive in the coming phases.
         </p>
 
-        <button
-          type="button"
-          onClick={logout}
-          className="mt-6 rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
-        >
-          Log out
-        </button>
+        <div className="mt-6 flex items-center gap-3">
+          <Link
+            href="/company"
+            className="rounded-md bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            Company profile
+          </Link>
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+          >
+            Log out
+          </button>
+        </div>
       </div>
     </main>
   );

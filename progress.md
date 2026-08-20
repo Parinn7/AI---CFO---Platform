@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 2.2 **complete** — email/password signup + login with JWT sessions and bcrypt hashing, working end-to-end against live Supabase. Next: 2.3 (company profile creation/management UI + API).
+**Phase:** Phase 2.3 **complete** — owner-scoped company profile CRUD API + create/edit UI, working end-to-end against live Supabase. Next: 2.4 (password reset flow, email stubbed).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -28,7 +28,8 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Frontend ↔ backend** confirmed: CORS allows `:3000` (preflight 200 + correct allow-origin header); health reachable end-to-end.
 - ✅ **DB layer (2.1)** — SQLAlchemy models `User`/`Company` per `schema.md` §1–2 (UUID PK + `created_at`/`updated_at` mixins, INR default, single-owner FK, fiscal-month check constraint). Alembic migration `0001` **applied to Supabase**; `users`/`companies`/`alembic_version` tables verified live with correct types + constraints. 3 model tests pass.
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
-- ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page. 21 backend tests pass (7 security unit + 8 auth endpoint via in-memory SQLite + 6 prior); frontend lint + build clean.
+- ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
+- ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select. **28 backend tests pass** (7 new company endpoint tests incl. owner-scoping); frontend lint + build clean; all 6 routes serve 200.
 - ❌ Wireframes deliberately deferred until after a working end-to-end version exists.
 
 **Stack versions:** Node 22, Python 3.14, Next 16.3, React 19.2, Tailwind 4, FastAPI 0.141, SQLAlchemy 2.0, psycopg 3.3, Alembic 1.14+. Backend deps use lower-bound pins (`>=`) so pip resolves Python-3.14-compatible wheels.
@@ -39,8 +40,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **2.3** — Company profile creation/management UI + API (FR-1.3). Build on the `Company` model; add a company router/schemas/service under `app/companies/`, guard endpoints with `get_current_user`, scope by owner. Frontend: a company profile page reachable from the dashboard.
-2. **2.4** — Password reset flow, email stubbed if no service (FR-1.4).
+1. **2.4** — Password reset flow (FR-1.4). Stub email sending if no email service configured (log/return the reset link/token instead of sending). Add reset-request + reset-confirm endpoints under `app/auth/`, a short-lived reset token, and matching request/confirm pages on the frontend.
 
 Then Phase 3 (data input) onward. Order follows the dependency chain: nothing downstream works without auth + data + the financial engine first.
 
@@ -56,6 +56,13 @@ Then Phase 3 (data input) onward. Order follows the dependency chain: nothing do
 ---
 
 ## Log
+
+### 2026-08-20 — Phase 2.3 DONE: company profile CRUD API + UI, owner-scoped, end-to-end
+- **Backend (`app/companies/`):** `schemas.py` — `CompanyCreate`/`CompanyUpdate` (fiscal month validated 1–12) / `CompanyRead`; currency deliberately *not* a client input (INR-only, DB `server_default`). `service.py` — create / list / `get_company_for_user` / `update_company`, every query filtered by `owner_user_id` (NFR-3). `router.py` — `POST`/`GET /companies`, `GET`/`PATCH /companies/{id}`, all `Depends(get_current_user)`; cross-user access returns `404` (existence not leaked). Registered under `/api/v1/companies` in `main.py`.
+- **Frontend:** `lib/api.ts` gained `apiPatch` + `Company` type + `listCompanies`/`createCompany`/`updateCompany`. New `/company` page (auth-guarded, redirects to `/login`) loads the user's company and renders `CompanyForm` — one component that creates when none exists and edits otherwise. INR shown read-only; fiscal-year-start as a month `<select>`. Dashboard now links to it.
+- **Verified:** 28 backend tests pass (7 new company tests, incl. "user B can't read/patch user A's company" and INR default). Full flow curl'd against **live Supabase**: create 201 (currency INR) → list → patch (bumps `updated_at`, preserves untouched fields) → no-auth 401 → bad-month 422; test rows cleaned up (cascade via user FK). Frontend lint + build + TS clean; `/`, `/login`, `/signup`, `/dashboard`, `/company` all serve 200.
+- **Docs updated:** architecture §3 (company endpoints + owner-scoping note), backend README (companies table + curl), frontend README (company section + structure), `tasks.md` 2.3 → [x].
+- **Caveat:** same standing one — in-browser client JS not driven by a real browser; API proven live, build/lint/types green. MVP manages a single company via the UI though the model/API support many.
 
 ### 2026-08-20 — Phase 2.2 DONE: signup + login (JWT) + password hashing, end-to-end
 - **Backend auth (`app/auth/`):** `security.py` — bcrypt hashing (72-byte-safe) + PyJWT `HS256` access tokens signed with `JWT_SECRET`; `service.py` — `create_user` (email lowercased, dup → `EmailAlreadyRegisteredError`) / `authenticate_user`; `schemas.py` — `SignupRequest`/`LoginRequest`/`UserRead`/`TokenResponse` (never exposes `password_hash`); `dependencies.py` — `get_current_user` (Bearer → `User`, 401 otherwise), the reusable guard for future protected routes; `router.py` — `POST /auth/signup` (201/409), `POST /auth/login` (200/401), `GET /auth/me` (Bearer). Mounted under `/api/v1/auth`.

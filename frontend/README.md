@@ -13,8 +13,9 @@ frontend/
     login/             # /login
     signup/            # /signup
     dashboard/         # /dashboard — auth-guarded placeholder (real dashboard: Phase 5)
+    company/           # /company — create/edit company profile (FR-1.3)
     globals.css
-  components/          # reusable UI (BackendStatus, AuthForm, AuthNav)
+  components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm)
   contexts/            # AuthContext — JWT session (localStorage), current user
   hooks/               # per-feature data-fetching hooks (e.g. useHealth)
   lib/                 # API client (api.ts) — apiGet/apiPost + auth calls
@@ -33,6 +34,13 @@ exposes `login`/`signup`/`logout` through the `useAuth()` hook. `/login` and
 `/signup` share one `AuthForm`; `/dashboard` redirects to `/login` without a
 valid session. (localStorage is a pragmatic prototype choice — a hardened build
 would use an httpOnly cookie.)
+
+## Company profile (Phase 2.3)
+
+`/company` (auth-guarded, linked from the dashboard) manages the user's company
+profile via `CompanyForm` — one component that creates when no company exists
+yet and edits otherwise. Currency is shown read-only as INR. Backed by the
+company calls in `lib/api.ts` (`listCompanies`/`createCompany`/`updateCompany`).
 
 ## Setup
 
