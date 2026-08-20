@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 2 **COMPLETE** (2.4 done) — full auth: signup/login (JWT) + company profiles + password reset (email stubbed), all working end-to-end against live Supabase. Next: Phase 3 (data input) — starting with 3.1 (`categories` table + seed).
+**Phase:** Phase 3 **in progress** — 3.1 done: `categories` table + 7 seeded system defaults live in Supabase (migration `0002` at head). Next: 3.2 (CSV/XLSX upload + `upload_batches`/`transactions` tables).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -30,6 +30,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
 - ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
 - ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select.
+- ✅ **Categories (3.1)** — `Category` model in `app/transactions/models.py` per `schema.md` §3 (nullable `company_id` → NULL = system default, FK→companies `ON DELETE CASCADE`, `type` check constraint `income`|`expense`, index on `company_id`). Alembic migration `0002` creates the table and seeds 7 system defaults (Revenue=income; Payroll/Rent/Marketing/Software/Tools/Operations/Other=expense) from a frozen list. **Applied to Supabase** (head `0002`); 7 rows + check constraint verified live (constraint also confirmed to reject a bad type). Living default list: `app/transactions/categories.py::DEFAULT_CATEGORIES`. Registered in `env.py` + `main.py`. **44 backend tests pass** (5 new: 4 constant + 1 model structure). No endpoint/UI yet — that arrives with the phases that consume categories.
 - ✅ **Password reset (2.4)** — Backend: `POST /auth/password-reset/{request,confirm}`. Request always returns 200 (no enumeration); with no email service the link is logged and returned inline in `development`. Reset tokens are stateless JWTs with a `type: reset` claim + a fingerprint (`pwf`) of the current password hash → single-use (self-invalidate on password change), no DB table. Access/reset tokens now both carry a `type` claim each decoder checks (no cross-use). Frontend: `/forgot-password` + `/reset-password` (token from URL, Suspense-wrapped), "Forgot password?" link on login, success banner via `?reset=1`. **39 backend tests pass** (11 new: 5 security unit + 6 reset endpoint incl. single-use); frontend lint + build clean; all 8 routes serve 200.
 - ❌ Wireframes deliberately deferred until after a working end-to-end version exists.
 
@@ -41,10 +42,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **3.1** — `categories` table + seed the default INR/SME category set (`schema.md` §3: Revenue, Payroll, Rent, Marketing, Software/Tools, Operations, Other; `income`|`expense`). Add the `Category` model (nullable `company_id` → null = system default), an Alembic migration `0002`, apply it to Supabase, and seed the defaults.
-2. **3.2** — CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2).
+1. **3.2** — CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2). New migration `0003` (both tables per `schema.md` §4–5); parse uploads and map columns to standard categories (reuse the seeded `categories`); transactions carry an explicit `type` (denormalized per `schema.md` §4 design note).
+2. **3.3** — Guided manual data entry flow (plain-language, question-based) (FR-2.3).
 
-Phase 2 (auth + company setup) is fully done. Phase 3 (data input) is next; order follows the dependency chain — nothing downstream works without data + the financial engine first.
+Phase 2 done; Phase 3 (data input) underway (3.1 done). Order follows the dependency chain — nothing downstream works without data + the financial engine first.
 
 ---
 
@@ -58,6 +59,13 @@ Phase 2 (auth + company setup) is fully done. Phase 3 (data input) is next; orde
 ---
 
 ## Log
+
+### 2026-08-20 — Phase 3.1 DONE: categories table + seeded defaults, live on Supabase
+- **Model:** `app/transactions/models.py` `Category` per `schema.md` §3 — nullable `company_id` (NULL = system default) FK→companies `ON DELETE CASCADE`, `name`, `type` with check constraint `ck_categories_type` (`income`|`expense`), index on `company_id`. Living default list in `app/transactions/categories.py` (`DEFAULT_CATEGORIES` + `CATEGORY_TYPES`).
+- **Migration `0002`:** creates `categories` and seeds 7 system defaults (Revenue=income; Payroll/Rent/Marketing/Software/Tools/Operations/Other=expense) via `op.bulk_insert`. The seed list is a **frozen copy** inlined in the migration (a migration must not change if the app constant is later edited). Registered transactions models in `migrations/env.py` and `app/main.py`.
+- **Verified:** offline `--sql` render correct (table + FK + check + index + 7 inserts). `alembic upgrade head` on **live Supabase** → head `0002`; queried live: 7 rows all `company_id NULL` with correct types, `ck_categories_type` present, and a bad-type insert is rejected by the constraint (rolled back). 44 backend tests pass (5 new: 4 default-set constant + 1 model structure; also updated the exact-table-set assertion to include `categories`).
+- **Docs updated:** `schema.md` §3 (default income/expense mapping + migration/constant note), backend README (migration list + upgrade comment), architecture §6 (0002), `tasks.md` 3.1 → [x].
+- **Scope note:** table + seed only — no categories endpoint or UI yet (added by the phases that consume them: manual entry 3.3, auto-categorization 4.1). No unique constraint on category names for MVP (custom categories are post-MVP; seed idempotency comes from migrations running once).
 
 ### 2026-08-20 — Phase 2.4 DONE: password reset flow (email stubbed), end-to-end — Phase 2 complete
 - **Backend:** `security.py` gained reset-token helpers — `create_password_reset_token` / `decode_password_reset_token` / `password_fingerprint`; both token kinds now carry a `type` claim (`access`/`reset`) that each decoder verifies (a reset token can't be replayed as a session token, or vice versa). Reset tokens embed `pwf` = fingerprint of the current password hash → single-use with **no DB table** (stops matching once the password changes). `service.py` — `create_password_reset` (returns token or None, no enumeration) + `reset_password` (validates token, checks fingerprint, rehashes). `router.py` — `POST /auth/password-reset/request` (always 200; logs link, returns it inline in `development`) + `/confirm` (400 on bad/used token). New config: `reset_token_expire_minutes` (30), `frontend_base_url`.

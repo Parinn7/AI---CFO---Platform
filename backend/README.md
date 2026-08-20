@@ -17,7 +17,7 @@ backend/
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
-  migrations/            # Alembic: env.py + versions/ (0001 = users + companies)
+  migrations/            # Alembic: env.py + versions/ (0001 = users + companies; 0002 = categories + seed)
   tests/                 # pytest smoke + feature tests
   alembic.ini
   requirements.txt
@@ -70,7 +70,7 @@ domain modules (`app/auth/models.py`, `app/companies/models.py`) on the shared
 
 ```bash
 source venv/bin/activate
-alembic upgrade head          # creates users + companies
+alembic upgrade head          # creates users + companies, then categories (+ seeds defaults)
 alembic downgrade -1          # roll back one revision
 alembic current               # show applied revision
 alembic upgrade head --sql    # render DDL without connecting (offline)

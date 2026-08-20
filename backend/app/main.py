@@ -22,6 +22,7 @@ from app.core.database import check_connection, dispose_engine
 # SQLAlchemy can't resolve it and raises KeyError('Company') on flush/refresh.
 import app.auth.models  # noqa: F401,E402
 import app.companies.models  # noqa: F401,E402
+import app.transactions.models  # noqa: F401,E402
 
 
 @asynccontextmanager

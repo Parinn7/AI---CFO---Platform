@@ -45,9 +45,9 @@
 | id | uuid, PK | |
 | company_id | uuid, FK → companies.id, nullable | null = system default category |
 | name | text, not null | e.g. Revenue, Payroll, Rent, Marketing, Software/Tools, Operations, Other |
-| type | text, not null | `income` \| `expense` |
+| type | text, not null | `income` \| `expense`; enforced by check constraint `ck_categories_type` |
 
-Seeded with the simplified default category set from the SRS; companies can add custom categories later (post-MVP).
+Seeded with the simplified default category set from the SRS; companies can add custom categories later (post-MVP). Defaults are **system-wide** (`company_id IS NULL`) and applied by Alembic migration `0002`: **Revenue** (`income`), and **Payroll / Rent / Marketing / Software/Tools / Operations / Other** (all `expense`). The living copy of this list is `app/transactions/categories.py::DEFAULT_CATEGORIES`; migration `0002` keeps a frozen copy so re-running it never changes behaviour.
 
 ## 4. `transactions`
 

@@ -28,7 +28,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **2.4** Password reset flow — stub email sending if no email service configured (FR-1.4).
 
 ## Phase 3 — Data Input
-- [ ] **3.1** `categories` table + seed default INR/SME category set.
+- [x] **3.1** `categories` table + seed default INR/SME category set.
 - [ ] **3.2** CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2).
 - [ ] **3.3** Guided manual data entry flow — plain-language, question-based (not a blank form), covering sales, purchases, salaries, rent, marketing spend, operational costs, bank transactions (FR-2.3).
 - [ ] **3.4** Upload/entry validation — missing dates, non-numeric amounts, duplicates (FR-2.4).

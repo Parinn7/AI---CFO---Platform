@@ -123,7 +123,7 @@ PostgreSQL as the single primary data store for MVP (schema detailed separately 
 - Hosted on **Supabase** (managed Postgres) — used purely as the database; the app keeps its own SQLAlchemy models and JWT auth, not Supabase Auth.
 - Async access via SQLAlchemy 2.0 with the **psycopg 3** driver (`postgresql+psycopg://…`), chosen over asyncpg for cleaner Python 3.14 wheel support. Connection config lives in `backend/app/core/config.py`; the engine/session/`Base` in `backend/app/core/database.py`.
 - The backend **boots without a database**: if `DATABASE_URL` is unset, the app still starts and `GET /api/v1/health` reports `database: "not_configured"` (vs `connected`/`unreachable`). Lets the frontend verify backend reachability before the DB exists.
-- Schema is versioned with **Alembic** (`backend/migrations/`). ORM models live in their domain modules (`app/auth/models.py`, `app/companies/models.py`) on the shared `Base`; every table uses a UUID PK + `created_at`/`updated_at` via mixins in `app/core/models.py`. Migration `0001` creates `users` + `companies`.
+- Schema is versioned with **Alembic** (`backend/migrations/`). ORM models live in their domain modules (`app/auth/models.py`, `app/companies/models.py`, `app/transactions/models.py`) on the shared `Base`; every table uses a UUID PK + `created_at`/`updated_at` via mixins in `app/core/models.py`. Migration `0001` creates `users` + `companies`; `0002` creates `categories` and seeds the system-default set (`company_id NULL`).
 
 ## 7. Third-Party Integrations
 

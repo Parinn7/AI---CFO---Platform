@@ -19,6 +19,7 @@ from app.core.database import Base
 # Import models for their side effect of registering on Base.metadata.
 from app.auth import models as _auth_models  # noqa: F401
 from app.companies import models as _company_models  # noqa: F401
+from app.transactions import models as _transaction_models  # noqa: F401
 
 config = context.config
 
