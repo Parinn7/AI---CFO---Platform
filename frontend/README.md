@@ -8,18 +8,31 @@ Next.js (App Router) + TypeScript + Tailwind CSS v4. Structure follows
 ```
 frontend/
   app/                 # route-level pages (App Router)
-    layout.tsx
-    page.tsx           # landing page — confirms backend connectivity (Phase 1 proof)
+    layout.tsx         # wraps the app in AuthProvider
+    page.tsx           # landing page — backend connectivity + auth nav
+    login/             # /login
+    signup/            # /signup
+    dashboard/         # /dashboard — auth-guarded placeholder (real dashboard: Phase 5)
     globals.css
-  components/          # reusable UI (e.g. BackendStatus); charts/tables/forms come later
+  components/          # reusable UI (BackendStatus, AuthForm, AuthNav)
+  contexts/            # AuthContext — JWT session (localStorage), current user
   hooks/               # per-feature data-fetching hooks (e.g. useHealth)
-  lib/                 # API client (api.ts), formatting + auth helpers (added later)
+  lib/                 # API client (api.ts) — apiGet/apiPost + auth calls
   public/
 ```
 
 Server state is currently plain `fetch` + local state; React Query/SWR can be
 layered in later without changing call sites. Charts (Recharts) arrive with the
 dashboard phase.
+
+## Auth (Phase 2.2)
+
+`AuthProvider` (`contexts/AuthContext.tsx`) holds the JWT session: it stores the
+token in `localStorage`, rehydrates the user via `GET /auth/me` on load, and
+exposes `login`/`signup`/`logout` through the `useAuth()` hook. `/login` and
+`/signup` share one `AuthForm`; `/dashboard` redirects to `/login` without a
+valid session. (localStorage is a pragmatic prototype choice — a hardened build
+would use an httpOnly cookie.)
 
 ## Setup
 

@@ -17,17 +17,99 @@ export type HealthResponse = {
   database: "connected" | "not_configured" | "unreachable";
 };
 
-export async function apiGet<T>(path: string): Promise<T> {
+/** Error carrying the HTTP status so callers can distinguish 401/409/etc. */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Pull a human-readable message out of a FastAPI error body (`detail`). */
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    const detail = body?.detail;
+    if (typeof detail === "string") return detail;
+    // 422 validation errors come back as an array of {msg, loc, ...}.
+    if (Array.isArray(detail) && detail[0]?.msg) return detail[0].msg;
+  } catch {
+    /* fall through to the generic message */
+  }
+  return `Request failed: ${res.status} ${res.statusText}`;
+}
+
+export async function apiGet<T>(path: string, token?: string): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     cache: "no-store",
   });
   if (!res.ok) {
-    throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    throw new ApiError(res.status, await errorMessage(res));
+  }
+  return res.json() as Promise<T>;
+}
+
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  token?: string,
+): Promise<T> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await errorMessage(res));
   }
   return res.json() as Promise<T>;
 }
 
 export function getHealth(): Promise<HealthResponse> {
   return apiGet<HealthResponse>("/api/v1/health");
+}
+
+// --- Auth (Phase 2.2) ---
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  created_at: string;
+};
+
+export type TokenResponse = {
+  access_token: string;
+  token_type: string;
+  user: AuthUser;
+};
+
+export function signup(input: {
+  email: string;
+  password: string;
+  full_name?: string;
+}): Promise<TokenResponse> {
+  return apiPost<TokenResponse>("/api/v1/auth/signup", input);
+}
+
+export function login(input: {
+  email: string;
+  password: string;
+}): Promise<TokenResponse> {
+  return apiPost<TokenResponse>("/api/v1/auth/login", input);
+}
+
+export function getMe(token: string): Promise<AuthUser> {
+  return apiGet<AuthUser>("/api/v1/auth/me", token);
 }

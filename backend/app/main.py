@@ -11,8 +11,16 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.auth.router import router as auth_router
 from app.core.config import settings
 from app.core.database import check_connection, dispose_engine
+
+# Import every model module so all ORM classes are registered on the mapper
+# registry before the first request. `User.companies` is a string-based
+# relationship to `Company`; without importing the companies model here,
+# SQLAlchemy can't resolve it and raises KeyError('Company') on flush/refresh.
+import app.auth.models  # noqa: F401,E402
+import app.companies.models  # noqa: F401,E402
 
 
 @asynccontextmanager
@@ -51,6 +59,8 @@ async def health() -> dict:
         "database": await check_connection(),
     }
 
+
+api_router.include_router(auth_router)
 
 app.include_router(api_router)
 

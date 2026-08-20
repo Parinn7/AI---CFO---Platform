@@ -10,7 +10,7 @@ backend/
   app/
     main.py              # FastAPI app: CORS, health endpoint, router wiring
     core/                # config, database (async engine, session, Base), shared model mixins
-    auth/                # Phase 2 — User model; signup, login, JWT (FR-1.x)
+    auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
     companies/           # Phase 2 — Company model; company profile CRUD (FR-1.3)
     transactions/        # Phase 3 — upload parsing, manual entry, categorization (FR-2.x)
     financial_engine/    # Phase 4 — deterministic KPI/cash-flow/anomaly math (FR-3.x, FR-4.x)
@@ -89,6 +89,30 @@ alembic revision --autogenerate -m "add <thing>"
 ```bash
 source venv/bin/activate
 pytest -q
+```
+
+## Authentication (Phase 2.2)
+
+Email + password signup/login with JWT session tokens. Passwords are bcrypt-hashed
+(NFR-2); `JWT_SECRET` from `.env` signs tokens (`HS256`, default 24h expiry).
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `POST /api/v1/auth/signup` | – | Create account; returns `{access_token, token_type, user}` (auto-login). `409` if email exists. |
+| `POST /api/v1/auth/login` | – | Verify credentials; returns the same token payload. `401` on failure. |
+| `GET /api/v1/auth/me` | Bearer | Return the authenticated user. |
+
+Send the token on protected routes as `Authorization: Bearer <access_token>`.
+`app.auth.dependencies.get_current_user` is the reusable dependency that turns
+that header into a loaded `User` (raising `401` otherwise) — protected endpoints
+in later phases depend on it. Example:
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8000/api/v1/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"at-least-8-chars","full_name":"You"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+curl localhost:8000/api/v1/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Notes

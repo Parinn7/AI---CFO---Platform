@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 2.1 **complete** — `users` + `companies` tables live in Supabase, migration `0001` applied, health reports `database: "connected"`. Next: 2.2 (signup/login + JWT).
+**Phase:** Phase 2.2 **complete** — email/password signup + login with JWT sessions and bcrypt hashing, working end-to-end against live Supabase. Next: 2.3 (company profile creation/management UI + API).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -28,6 +28,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Frontend ↔ backend** confirmed: CORS allows `:3000` (preflight 200 + correct allow-origin header); health reachable end-to-end.
 - ✅ **DB layer (2.1)** — SQLAlchemy models `User`/`Company` per `schema.md` §1–2 (UUID PK + `created_at`/`updated_at` mixins, INR default, single-owner FK, fiscal-month check constraint). Alembic migration `0001` **applied to Supabase**; `users`/`companies`/`alembic_version` tables verified live with correct types + constraints. 3 model tests pass.
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
+- ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page. 21 backend tests pass (7 security unit + 8 auth endpoint via in-memory SQLite + 6 prior); frontend lint + build clean.
 - ❌ Wireframes deliberately deferred until after a working end-to-end version exists.
 
 **Stack versions:** Node 22, Python 3.14, Next 16.3, React 19.2, Tailwind 4, FastAPI 0.141, SQLAlchemy 2.0, psycopg 3.3, Alembic 1.14+. Backend deps use lower-bound pins (`>=`) so pip resolves Python-3.14-compatible wheels.
@@ -38,9 +39,8 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **2.2** — Signup + login (JWT sessions), password hashing (FR-1.1, FR-1.2). Build on the `User` model; add auth router/schemas/services under `app/auth/`, a `get_current_user` dependency, and bcrypt/argon2 hashing.
-2. **2.3** — Company profile creation/management UI + API (FR-1.3).
-3. **2.4** — Password reset flow, email stubbed if no service (FR-1.4).
+1. **2.3** — Company profile creation/management UI + API (FR-1.3). Build on the `Company` model; add a company router/schemas/service under `app/companies/`, guard endpoints with `get_current_user`, scope by owner. Frontend: a company profile page reachable from the dashboard.
+2. **2.4** — Password reset flow, email stubbed if no service (FR-1.4).
 
 Then Phase 3 (data input) onward. Order follows the dependency chain: nothing downstream works without auth + data + the financial engine first.
 
@@ -56,6 +56,15 @@ Then Phase 3 (data input) onward. Order follows the dependency chain: nothing do
 ---
 
 ## Log
+
+### 2026-08-20 — Phase 2.2 DONE: signup + login (JWT) + password hashing, end-to-end
+- **Backend auth (`app/auth/`):** `security.py` — bcrypt hashing (72-byte-safe) + PyJWT `HS256` access tokens signed with `JWT_SECRET`; `service.py` — `create_user` (email lowercased, dup → `EmailAlreadyRegisteredError`) / `authenticate_user`; `schemas.py` — `SignupRequest`/`LoginRequest`/`UserRead`/`TokenResponse` (never exposes `password_hash`); `dependencies.py` — `get_current_user` (Bearer → `User`, 401 otherwise), the reusable guard for future protected routes; `router.py` — `POST /auth/signup` (201/409), `POST /auth/login` (200/401), `GET /auth/me` (Bearer). Mounted under `/api/v1/auth`.
+- **Bug found + fixed via live verification:** signup 500'd on Postgres with `KeyError('Company')` — SQLAlchemy couldn't resolve `User.companies` because only `User` was imported at app startup. Fixed by importing both model modules in `main.py` so all mappers register before the first request. (Tests hadn't caught it: they import both models explicitly.)
+- **Frontend:** `AuthContext` (token in localStorage, rehydrates via `/auth/me`, `login`/`signup`/`logout`); `lib/api.ts` gained `apiPost` + `ApiError` (surfaces FastAPI `detail`) + auth calls; shared `AuthForm` for `/login` + `/signup`; auth-guarded `/dashboard` placeholder; `AuthNav` + refreshed copy on the landing page. `layout.tsx` wraps everything in `AuthProvider`.
+- **Deps:** backend + `bcrypt`, `PyJWT`, `email-validator`, plus `aiosqlite` + `pytest-asyncio` (test-only) and a `pytest.ini` (`asyncio_mode=auto`).
+- **Verified:** 21 backend tests pass (7 security unit, 8 auth-endpoint against in-memory SQLite, 6 prior). Full flow curl'd against **live Supabase**: signup 201 → dup 409 → login 200 → wrong-pw 401 → `/me` 200 → no-token 401; test rows cleaned up afterward. Frontend `lint` + `build` clean; `/`, `/login`, `/signup`, `/dashboard` all serve 200.
+- **Docs updated:** architecture §3 (concrete auth endpoints + module split), backend README (auth table + curl example), frontend README (auth section + structure), `tasks.md` 2.2 → [x].
+- **Not done / caveat:** in-browser client JS not driven by a real browser (same standing caveat as the health panel) — but every dependency is green and the API is proven live. Argon2 not used; bcrypt chosen (schema allows either). Password-reset (2.4) and company profile (2.3) still pending.
 
 ### 2026-08-14 — Phase 2.1 DONE: migration applied to live Supabase
 - Provisioned Supabase project; `DATABASE_URL` (Session pooler, ap-southeast-1) in gitignored `backend/.env`. `alembic upgrade head` → `0001 (head)`; verified `users`/`companies` tables live with correct types + all constraints; health endpoint → `database: "connected"`. 2.1 checked off.

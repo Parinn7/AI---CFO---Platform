@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { BackendStatus } from "@/components/BackendStatus";
+import { AuthNav } from "@/components/AuthNav";
 
 export default function Home() {
   return (
@@ -11,15 +14,20 @@ export default function Home() {
           AI-Powered Financial Operating System
         </h1>
         <p className="mt-3 text-black/60 dark:text-white/60">
-          Frontend scaffolding is live. The panel below confirms the Next.js
-          frontend can reach the FastAPI backend end-to-end — the Phase 1 goal.
+          A financial operating system for startups and SMEs — upload or enter
+          your data and get KPIs, scenarios, and an AI CFO in plain language.
         </p>
       </div>
+
+      <AuthNav />
 
       <BackendStatus />
 
       <p className="text-xs text-black/40 dark:text-white/40">
-        Next: authentication &amp; company setup (Phase 2).
+        Next: company setup &amp; data input.{" "}
+        <Link href="/signup" className="underline hover:no-underline">
+          Get started
+        </Link>
       </p>
     </main>
   );

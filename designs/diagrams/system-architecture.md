@@ -66,7 +66,10 @@ The system follows a standard three-tier architecture with an integrated AI laye
 ```
 
 - **API style:** REST, versioned under `/api/v1/`
-- **Auth:** JWT-based session tokens; password hashing via bcrypt/argon2
+- **Auth:** JWT-based session tokens; password hashing via bcrypt. Each auth module is split into `security.py` (stateless hashing + JWT encode/decode), `service.py` (DB-backed user creation and credential checks), `schemas.py`, `dependencies.py` (`get_current_user` resolves a Bearer token → `User`, the reusable guard for all protected routes), and `router.py`. Implemented endpoints (task 2.2):
+  - `POST /api/v1/auth/signup` — create account, returns `{access_token, token_type, user}` (auto-login); `409` if email taken.
+  - `POST /api/v1/auth/login` — verify credentials, returns the same token payload; `401` on bad credentials.
+  - `GET /api/v1/auth/me` — returns the authenticated user; requires `Authorization: Bearer <token>`.
 - **Validation:** Pydantic models for all request/response schemas
 - **Background/async work:** file parsing and report generation should run as async tasks (FastAPI background tasks at MVP scale; can move to a proper task queue like Celery/RQ later if volume grows)
 
