@@ -12,12 +12,12 @@ backend/
     core/                # config, database (async engine, session, Base), shared model mixins
     auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
     companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
-    transactions/        # Phase 3 — upload parsing, manual entry, categorization (FR-2.x)
+    transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
     financial_engine/    # Phase 4 — deterministic KPI/cash-flow/anomaly math (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
-  migrations/            # Alembic: env.py + versions/ (0001 = users + companies; 0002 = categories + seed)
+  migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions)
   tests/                 # pytest smoke + feature tests
   alembic.ini
   requirements.txt
@@ -143,6 +143,27 @@ server ignores any client-supplied currency (INR-only MVP).
 curl -X POST localhost:8000/api/v1/companies -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"Acme SME","industry":"Retail","fiscal_year_start_month":4}'
+```
+
+## Data import — CSV/XLSX upload (Phase 3.2)
+
+Import transactions from a CSV or Excel file (FR-2.1, FR-2.2). Owner-scoped:
+uploads target a company the caller owns. The parser (`app/transactions/parsing.py`)
+is DB-free and maps real-world headers by alias — it needs a **date** and an
+**amount** column; **description**, **category**, and **type** are used if
+present. Amounts are stored as a positive magnitude with direction in `type`;
+unparseable rows are skipped and reported in the batch's `error_log`.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/uploads` | Multipart (`file` + `company_id`); imports, returns batch + transactions. `400` bad file/columns, `404` not your company. |
+| `GET /api/v1/uploads?company_id=` | List a company's import batches. |
+| `GET /api/v1/uploads/{id}` | One batch + its transactions. |
+
+```bash
+printf 'Date,Description,Amount,Category\n2026-01-05,Client invoice,120000,Revenue\n' > sample.csv
+curl -X POST localhost:8000/api/v1/uploads -H "Authorization: Bearer $TOKEN" \
+  -F "company_id=$COMPANY_ID" -F "file=@sample.csv;type=text/csv"
 ```
 
 ## Notes

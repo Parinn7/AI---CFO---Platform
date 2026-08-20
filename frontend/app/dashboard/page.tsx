@@ -44,16 +44,22 @@ export default function DashboardPage() {
         </p>
 
         <p className="mt-4 text-sm text-black/60 dark:text-white/60">
-          Your account is set up. Next, set up your company profile — financial
-          tools arrive in the coming phases.
+          Set up your company profile, then import your financial data. KPIs and
+          the dashboard arrive in the coming phases.
         </p>
 
-        <div className="mt-6 flex items-center gap-3">
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <Link
             href="/company"
-            className="rounded-md bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+            className="rounded-md border border-black/15 dark:border-white/20 px-4 py-2 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
           >
             Company profile
+          </Link>
+          <Link
+            href="/data"
+            className="rounded-md bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+          >
+            Import data
           </Link>
           <button
             type="button"

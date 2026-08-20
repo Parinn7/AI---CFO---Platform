@@ -16,6 +16,7 @@ frontend/
     reset-password/    # /reset-password — set a new password from a token (FR-1.4)
     dashboard/         # /dashboard — auth-guarded placeholder (real dashboard: Phase 5)
     company/           # /company — create/edit company profile (FR-1.3)
+    data/              # /data — CSV/XLSX import + imported-transaction view (FR-2.1/2.2)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm)
   contexts/            # AuthContext — JWT session (localStorage), current user
@@ -41,6 +42,12 @@ Password reset (FR-1.4): `/forgot-password` requests a link, `/reset-password`
 (reads the token from the URL) sets the new password. With no email service, the
 backend returns the link inline in development, which `/forgot-password` surfaces
 so the flow is completable end-to-end.
+
+Data import (FR-2.1/2.2): `/data` (auth-guarded, linked from the dashboard)
+uploads a CSV/XLSX for the user's company via `uploadFile` in `lib/api.ts`
+(multipart through `apiUpload`), then shows the import result — rows imported,
+any skipped-row messages, and the parsed transactions — plus a list of past
+imports. Requires a company profile first.
 
 ## Company profile (Phase 2.3)
 

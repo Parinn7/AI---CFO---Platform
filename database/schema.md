@@ -67,6 +67,8 @@ Seeded with the simplified default category set from the SRS; companies can add 
 
 **Design decision — locked in:** `transactions.type` duplicates information derivable from `categories.type`, a deliberate deviation from strict 3NF. A transaction's income/expense classification is set once at creation and stays fixed even if its category is later edited — without this, changing a category's type could silently reclassify every historical transaction linked to it, retroactively altering past KPI snapshots and reports. For a financial platform, audit-stability of historical records outweighs strict normalization here.
 
+**Implementation note (task 3.2):** `amount` is stored as a **positive magnitude**; income/expense direction is carried solely by `type` (so KPI sums are unambiguous). On import, `type` is resolved as: explicit type/direction column → matched category's type → sign of the amount in the file. Created by Alembic migration `0003` alongside `upload_batches`.
+
 ## 5. `upload_batches`
 
 | Column | Type | Notes |

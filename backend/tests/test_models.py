@@ -11,7 +11,13 @@ from app.transactions import models as _transactions  # noqa: F401
 
 
 def test_expected_tables_registered():
-    assert set(Base.metadata.tables) == {"users", "companies", "categories"}
+    assert set(Base.metadata.tables) == {
+        "users",
+        "companies",
+        "categories",
+        "upload_batches",
+        "transactions",
+    }
 
 
 def test_users_columns():
@@ -55,3 +61,35 @@ def test_categories_columns_and_constraints():
     assert fk.column.table.name == "companies"
     constraint_names = {c.name for c in table.constraints if c.name}
     assert "ck_categories_type" in constraint_names
+
+
+def test_transactions_columns_and_constraints():
+    table = Base.metadata.tables["transactions"]
+    cols = table.columns
+    assert {
+        "id",
+        "company_id",
+        "category_id",
+        "source",
+        "upload_batch_id",
+        "date",
+        "description",
+        "amount",
+        "type",
+        "is_flagged_anomaly",
+    } <= set(cols.keys())
+    assert cols["company_id"].nullable is False
+    assert cols["category_id"].nullable is True  # nullable until categorized
+    assert cols["upload_batch_id"].nullable is True  # null for manual entries
+    constraint_names = {c.name for c in table.constraints if c.name}
+    assert {"ck_transactions_source", "ck_transactions_type"} <= constraint_names
+
+
+def test_upload_batches_columns_and_constraints():
+    table = Base.metadata.tables["upload_batches"]
+    cols = table.columns
+    assert {"id", "company_id", "filename", "status", "row_count", "error_log"} <= set(
+        cols.keys()
+    )
+    constraint_names = {c.name for c in table.constraints if c.name}
+    assert "ck_upload_batches_status" in constraint_names

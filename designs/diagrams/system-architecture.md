@@ -78,6 +78,11 @@ The system follows a standard three-tier architecture with an integrated AI laye
   - `GET /api/v1/companies` — list the current user's companies.
   - `GET /api/v1/companies/{id}` — get one; `404` if it isn't the caller's (existence not leaked).
   - `PATCH /api/v1/companies/{id}` — partial update (name/industry/fiscal-year-start-month); `404` if not owned.
+- **Data input — uploads (`app/transactions/`):** CSV/XLSX import (task 3.2, FR-2.1/FR-2.2). `parsing.py` is **DB-free and unit-tested** — it maps real-world headers to standard fields by normalised aliases (e.g. "Transaction Date"→date, "Amount (INR)"→amount, "Narration"→description), parses Indian-format amounts, and skips unparseable rows with per-row messages instead of failing the file (NFR-6). `service.py` resolves each row's category (case-insensitive name match against the company's + system-default categories) and its final `type`, then persists an `UploadBatch` + `Transaction`s. All routes are `get_current_user`-guarded and company-owner-scoped. Endpoints:
+  - `POST /api/v1/uploads` — multipart (`file` + `company_id`); imports and returns the batch + created transactions (`201`); `400` on unsupported type / missing date+amount columns / oversize (10 MB), `404` if the company isn't the caller's.
+  - `GET /api/v1/uploads?company_id=` — list a company's import batches.
+  - `GET /api/v1/uploads/{id}` — one batch + its transactions.
+- **Decisions (task 3.2):** (a) `type` resolution order — explicit type/direction column → matched category's type → sign of amount; (b) `amount` is stored as a **positive magnitude**, with income/expense direction carried solely by `type` (keeps downstream KPI math unambiguous, consistent with the schema.md §4 denormalized-`type` decision). Parsing runs **synchronously** at MVP scale (files are small); can move to a background task later.
 - **Validation:** Pydantic models for all request/response schemas
 - **Background/async work:** file parsing and report generation should run as async tasks (FastAPI background tasks at MVP scale; can move to a proper task queue like Celery/RQ later if volume grows)
 
@@ -123,7 +128,7 @@ PostgreSQL as the single primary data store for MVP (schema detailed separately 
 - Hosted on **Supabase** (managed Postgres) — used purely as the database; the app keeps its own SQLAlchemy models and JWT auth, not Supabase Auth.
 - Async access via SQLAlchemy 2.0 with the **psycopg 3** driver (`postgresql+psycopg://…`), chosen over asyncpg for cleaner Python 3.14 wheel support. Connection config lives in `backend/app/core/config.py`; the engine/session/`Base` in `backend/app/core/database.py`.
 - The backend **boots without a database**: if `DATABASE_URL` is unset, the app still starts and `GET /api/v1/health` reports `database: "not_configured"` (vs `connected`/`unreachable`). Lets the frontend verify backend reachability before the DB exists.
-- Schema is versioned with **Alembic** (`backend/migrations/`). ORM models live in their domain modules (`app/auth/models.py`, `app/companies/models.py`, `app/transactions/models.py`) on the shared `Base`; every table uses a UUID PK + `created_at`/`updated_at` via mixins in `app/core/models.py`. Migration `0001` creates `users` + `companies`; `0002` creates `categories` and seeds the system-default set (`company_id NULL`).
+- Schema is versioned with **Alembic** (`backend/migrations/`). ORM models live in their domain modules (`app/auth/models.py`, `app/companies/models.py`, `app/transactions/models.py`) on the shared `Base`; every table uses a UUID PK + `created_at`/`updated_at` via mixins in `app/core/models.py`. Migration `0001` creates `users` + `companies`; `0002` creates `categories` and seeds the system-default set (`company_id NULL`); `0003` creates `upload_batches` + `transactions`.
 
 ## 7. Third-Party Integrations
 

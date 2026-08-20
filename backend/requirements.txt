@@ -22,6 +22,10 @@ email-validator>=2.2.0   # backs pydantic EmailStr for signup/login validation
 bcrypt>=4.2.1            # password hashing (NFR-2); used directly, no passlib wrapper
 PyJWT>=2.10.1            # JWT access tokens for session auth (FR-1.2)
 
+# Data input (Phase 3.2 — CSV/XLSX upload + parsing)
+python-multipart>=0.0.18  # FastAPI multipart/form-data (file uploads)
+openpyxl>=3.1.5           # XLSX parsing
+
 # Testing
 pytest>=8.3.4
 pytest-asyncio>=0.24.0   # async test support for auth endpoint tests

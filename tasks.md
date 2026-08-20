@@ -29,7 +29,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 
 ## Phase 3 — Data Input
 - [x] **3.1** `categories` table + seed default INR/SME category set.
-- [ ] **3.2** CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2).
+- [x] **3.2** CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2).
 - [ ] **3.3** Guided manual data entry flow — plain-language, question-based (not a blank form), covering sales, purchases, salaries, rent, marketing spend, operational costs, bank transactions (FR-2.3).
 - [ ] **3.4** Upload/entry validation — missing dates, non-numeric amounts, duplicates (FR-2.4).
 - [ ] **3.5** Edit/delete previously entered data (FR-2.5).

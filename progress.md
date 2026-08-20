@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 3 **in progress** — 3.1 done: `categories` table + 7 seeded system defaults live in Supabase (migration `0002` at head). Next: 3.2 (CSV/XLSX upload + `upload_batches`/`transactions` tables).
+**Phase:** Phase 3 **in progress** — 3.1 + 3.2 done: `categories` seeded, and CSV/XLSX upload → `upload_batches`/`transactions` working end-to-end (migration `0003` at head on Supabase). Next: 3.3 (guided manual data entry).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -30,6 +30,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
 - ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
 - ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select.
+- ✅ **Data upload (3.2)** — Backend: `UploadBatch` + `Transaction` models (`schema.md` §4–5; check constraints on `status`/`source`/`type`, FK cascades, `amount` numeric(14,2) stored as positive magnitude). Migration `0003` **applied to Supabase** (head). DB-free `parsing.py` (alias header mapping, Indian-format amounts, parenthesised negatives, bad-row skip w/ messages) + `service.py` (category name-match → `category_id`; type = explicit col → category type → amount sign). Endpoints `POST /uploads` (multipart file+company_id), `GET /uploads?company_id=`, `GET /uploads/{id}` — all owner-scoped (cross-user → 404). Frontend: `/data` page (file picker, import result table, past imports), linked from dashboard; `apiUpload` + upload API calls. **63 backend tests pass** (19 new: 8 parsing unit + 9 upload endpoint + model structure). Verified live: CSV with `1,20,000` → 120000.00, categories mapped, types resolved, bad row skipped→error_log; list/get; ownership 404.
 - ✅ **Categories (3.1)** — `Category` model in `app/transactions/models.py` per `schema.md` §3 (nullable `company_id` → NULL = system default, FK→companies `ON DELETE CASCADE`, `type` check constraint `income`|`expense`, index on `company_id`). Alembic migration `0002` creates the table and seeds 7 system defaults (Revenue=income; Payroll/Rent/Marketing/Software/Tools/Operations/Other=expense) from a frozen list. **Applied to Supabase** (head `0002`); 7 rows + check constraint verified live (constraint also confirmed to reject a bad type). Living default list: `app/transactions/categories.py::DEFAULT_CATEGORIES`. Registered in `env.py` + `main.py`. **44 backend tests pass** (5 new: 4 constant + 1 model structure). No endpoint/UI yet — that arrives with the phases that consume categories.
 - ✅ **Password reset (2.4)** — Backend: `POST /auth/password-reset/{request,confirm}`. Request always returns 200 (no enumeration); with no email service the link is logged and returned inline in `development`. Reset tokens are stateless JWTs with a `type: reset` claim + a fingerprint (`pwf`) of the current password hash → single-use (self-invalidate on password change), no DB table. Access/reset tokens now both carry a `type` claim each decoder checks (no cross-use). Frontend: `/forgot-password` + `/reset-password` (token from URL, Suspense-wrapped), "Forgot password?" link on login, success banner via `?reset=1`. **39 backend tests pass** (11 new: 5 security unit + 6 reset endpoint incl. single-use); frontend lint + build clean; all 8 routes serve 200.
 - ❌ Wireframes deliberately deferred until after a working end-to-end version exists.
@@ -42,10 +43,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **3.2** — CSV/XLSX upload endpoint + `upload_batches`/`transactions` tables (FR-2.1, FR-2.2). New migration `0003` (both tables per `schema.md` §4–5); parse uploads and map columns to standard categories (reuse the seeded `categories`); transactions carry an explicit `type` (denormalized per `schema.md` §4 design note).
-2. **3.3** — Guided manual data entry flow (plain-language, question-based) (FR-2.3).
+1. **3.3** — Guided manual data entry flow (FR-2.3): plain-language, question-based (not a blank accounting form), covering sales/purchases/salaries/rent/marketing/operational costs/bank transactions. Reuse the `transactions` table with `source="manual"` (no new migration); build a backend endpoint to create manual transactions + a guided frontend flow. Manual entries must be first-class (flow into KPIs identically — that equivalence is confirmed in 3.6).
+2. **3.4** — Upload/entry validation: missing dates, non-numeric amounts, duplicates (FR-2.4). Builds on the per-row error handling already in the parser.
 
-Phase 2 done; Phase 3 (data input) underway (3.1 done). Order follows the dependency chain — nothing downstream works without data + the financial engine first.
+Phase 2 done; Phase 3 (data input) underway (3.1, 3.2 done). Order follows the dependency chain — nothing downstream works without data + the financial engine first.
 
 ---
 
@@ -59,6 +60,16 @@ Phase 2 done; Phase 3 (data input) underway (3.1 done). Order follows the depend
 ---
 
 ## Log
+
+### 2026-08-20 — Phase 3.2 DONE: CSV/XLSX upload → upload_batches + transactions, end-to-end
+- **Models/migration:** `UploadBatch` + `Transaction` added to `app/transactions/models.py` per `schema.md` §4–5 (check constraints `ck_upload_batches_status`, `ck_transactions_source`, `ck_transactions_type`; company/category/batch FKs with CASCADE / SET NULL; `amount` numeric(14,2)). Migration `0003` created both tables + indexes; offline `--sql` reviewed, `alembic upgrade head` applied to **live Supabase** (head `0003`).
+- **Parsing (`parsing.py`, DB-free/unit-tested):** normalises headers and maps aliases (Transaction Date→date, Amount (INR)→amount, Narration→description, Category, Type); cleans Indian-format amounts (`1,20,000`, `₹`, parenthesised negatives); requires date+amount columns (else `UploadParseError`); skips unparseable rows with `Row N: …` messages instead of aborting (NFR-6). Handles CSV + XLSX (openpyxl; date cells rendered ISO).
+- **Service/router:** `service.py` resolves category by case-insensitive name (company + system defaults) → `category_id`, and `type` via explicit column → category type → amount sign; stores `amount` as positive magnitude. `router.py`: `POST /uploads` (multipart), `GET /uploads?company_id=`, `GET /uploads/{id}`, all owner-scoped via `get_company_for_user` / a batch→company→owner join (cross-user → 404). `400` on bad file/missing columns/oversize (10 MB).
+- **Frontend:** `apiUpload` (multipart, no forced Content-Type) + `uploadFile`/`listUploads`/`getUpload` in `lib/api.ts`; new `/data` page (auth-guarded) — file picker, import-result panel (rows imported + skipped-row notes + transaction table with INR formatting), past-imports list. Dashboard links to it.
+- **Deps:** `python-multipart` (uploads) + `openpyxl` (XLSX).
+- **Verified:** 63 backend tests pass (19 new — 8 parsing, 9 upload-endpoint incl. ownership 404 + category/type resolution + bad-row logging, plus model-structure). Live against Supabase: CSV with aliased headers + `1,20,000` → `120000.00`, categories mapped (`category_id` set), types from category (Revenue→income, Rent/Software/Tools→expense), bad no-date row skipped → `error_log` + `row_count=3`; list + get-by-id; sign-based inference. Frontend lint + build + TS clean; `/`, `/dashboard`, `/company`, `/data` serve 200. Test rows cleaned up (cascade).
+- **Docs updated:** architecture §3 (upload endpoints + parser/type/amount decisions) & §6 (0003), `schema.md` §4 (amount-magnitude + type-resolution note), both READMEs, `tasks.md` 3.2 → [x].
+- **Scope note:** richer validation + duplicate detection is task 3.4 (parser already reports missing-date/non-numeric per row; duplicates not yet handled). Transaction edit/delete + a full transactions list endpoint are 3.5.
 
 ### 2026-08-20 — Phase 3.1 DONE: categories table + seeded defaults, live on Supabase
 - **Model:** `app/transactions/models.py` `Category` per `schema.md` §3 — nullable `company_id` (NULL = system default) FK→companies `ON DELETE CASCADE`, `name`, `type` with check constraint `ck_categories_type` (`income`|`expense`), index on `company_id`. Living default list in `app/transactions/categories.py` (`DEFAULT_CATEGORIES` + `CATEGORY_TYPES`).

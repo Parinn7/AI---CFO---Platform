@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.auth.router import router as auth_router
 from app.companies.router import router as companies_router
+from app.transactions.router import router as uploads_router
 from app.core.config import settings
 from app.core.database import check_connection, dispose_engine
 
@@ -64,6 +65,7 @@ async def health() -> dict:
 
 api_router.include_router(auth_router)
 api_router.include_router(companies_router)
+api_router.include_router(uploads_router)
 
 app.include_router(api_router)
 
