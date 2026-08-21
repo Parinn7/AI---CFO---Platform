@@ -303,12 +303,17 @@ export function listCategories(
   );
 }
 
+export type ManualEntryResult = {
+  created: Transaction[];
+  skipped_duplicates: string[];
+};
+
 export function createManualTransactions(
   companyId: string,
   transactions: ManualEntryInput[],
   token: string,
-): Promise<Transaction[]> {
-  return apiPost<Transaction[]>(
+): Promise<ManualEntryResult> {
+  return apiPost<ManualEntryResult>(
     "/api/v1/transactions",
     { company_id: companyId, transactions },
     token,

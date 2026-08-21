@@ -32,6 +32,7 @@ class ParsedRow:
     description: str | None
     category_name: str | None
     explicit_type: str | None  # "income" | "expense" | None
+    source_row: int  # 1-based line number in the file (for user-facing messages)
 
 
 @dataclass
@@ -208,6 +209,7 @@ def parse_upload(filename: str, content: bytes) -> ParsedUpload:
                 description=description,
                 category_name=category_name,
                 explicit_type=explicit_type,
+                source_row=i,
             )
         )
 

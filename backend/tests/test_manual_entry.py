@@ -111,7 +111,7 @@ async def test_manual_entry_uses_category_type_and_is_manual(client: AsyncClient
         },
     )
     assert resp.status_code == 201
-    created = resp.json()
+    created = resp.json()["created"]
     assert len(created) == 2
     by_type = {t["type"]: t for t in created}
     assert by_type["income"]["source"] == "manual"
@@ -142,7 +142,7 @@ async def test_manual_entry_explicit_type_override(client: AsyncClient):
         },
     )
     assert resp.status_code == 201
-    assert resp.json()[0]["type"] == "income"
+    assert resp.json()["created"][0]["type"] == "income"
 
 
 async def test_manual_entry_rejects_unknown_category(client: AsyncClient):
@@ -212,6 +212,54 @@ async def test_manual_entry_cannot_target_another_users_company(client: AsyncCli
         },
     )
     assert resp.status_code == 404
+
+
+async def test_manual_entry_skips_duplicate_of_existing(client: AsyncClient):
+    headers = await _auth(client)
+    cid = await _company(client, headers)
+    cats = await _categories(client, headers, cid)
+    entry = {
+        "date": "2026-03-01",
+        "amount": "25000",
+        "category_id": cats["Rent"]["id"],
+        "description": "March rent",
+    }
+    first = await client.post(
+        "/api/v1/transactions",
+        headers=headers,
+        json={"company_id": cid, "transactions": [entry]},
+    )
+    assert len(first.json()["created"]) == 1
+
+    # Re-submitting the same entry is skipped, not double-entered.
+    second = await client.post(
+        "/api/v1/transactions",
+        headers=headers,
+        json={"company_id": cid, "transactions": [entry]},
+    )
+    body = second.json()
+    assert body["created"] == []
+    assert len(body["skipped_duplicates"]) == 1
+
+    listing = await client.get(
+        "/api/v1/transactions", headers=headers, params={"company_id": cid}
+    )
+    assert len(listing.json()) == 1  # still only one
+
+
+async def test_manual_entry_dedupes_within_one_submission(client: AsyncClient):
+    headers = await _auth(client)
+    cid = await _company(client, headers)
+    cats = await _categories(client, headers, cid)
+    entry = {"date": "2026-03-02", "amount": "500", "category_id": cats["Other"]["id"]}
+    resp = await client.post(
+        "/api/v1/transactions",
+        headers=headers,
+        json={"company_id": cid, "transactions": [entry, entry]},
+    )
+    body = resp.json()
+    assert len(body["created"]) == 1
+    assert len(body["skipped_duplicates"]) == 1
 
 
 async def test_list_transactions_includes_manual_entries(client: AsyncClient):

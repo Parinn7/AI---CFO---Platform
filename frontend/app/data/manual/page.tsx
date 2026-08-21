@@ -64,6 +64,7 @@ export default function ManualEntryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<Transaction[] | null>(null);
+  const [skipped, setSkipped] = useState<string[]>([]);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -97,6 +98,7 @@ export default function ManualEntryPage() {
     if (!token || !company) return;
     setError(null);
     setSaved(null);
+    setSkipped([]);
 
     const entries: ManualEntryInput[] = [];
     for (const cat of categories) {
@@ -123,8 +125,9 @@ export default function ManualEntryPage() {
 
     setSubmitting(true);
     try {
-      const created = await createManualTransactions(company.id, entries, token);
-      setSaved(created);
+      const result = await createManualTransactions(company.id, entries, token);
+      setSaved(result.created);
+      setSkipped(result.skipped_duplicates);
       setAmounts({});
     } catch (err) {
       setError(
@@ -251,32 +254,48 @@ export default function ManualEntryPage() {
           {saved && (
             <div className="rounded-xl border border-green-600/30 bg-green-600/5 p-6 space-y-3">
               <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                Saved {saved.length} {saved.length === 1 ? "entry" : "entries"}.
+                {saved.length > 0
+                  ? `Saved ${saved.length} ${saved.length === 1 ? "entry" : "entries"}.`
+                  : "Nothing new saved."}
               </p>
-              <ul className="text-sm divide-y divide-black/5 dark:divide-white/10">
-                {saved.map((t) => (
-                  <li key={t.id} className="py-2 flex justify-between gap-4">
-                    <span className="text-black/70 dark:text-white/70">
-                      {t.date} · {t.description ?? t.type}
-                    </span>
-                    <span
-                      className={`font-mono ${
-                        t.type === "income"
-                          ? "text-green-600 dark:text-green-500"
-                          : "text-black/80 dark:text-white/80"
-                      }`}
-                    >
-                      {t.type === "expense" ? "-" : "+"}
-                      {inr.format(Number(t.amount))}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+
+              {saved.length > 0 && (
+                <ul className="text-sm divide-y divide-black/5 dark:divide-white/10">
+                  {saved.map((t) => (
+                    <li key={t.id} className="py-2 flex justify-between gap-4">
+                      <span className="text-black/70 dark:text-white/70">
+                        {t.date} · {t.description ?? t.type}
+                      </span>
+                      <span
+                        className={`font-mono ${
+                          t.type === "income"
+                            ? "text-green-600 dark:text-green-500"
+                            : "text-black/80 dark:text-white/80"
+                        }`}
+                      >
+                        {t.type === "expense" ? "-" : "+"}
+                        {inr.format(Number(t.amount))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {skipped.length > 0 && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs whitespace-pre-line">
+                  <p className="font-medium mb-1">
+                    Skipped {skipped.length} likely duplicate
+                    {skipped.length === 1 ? "" : "s"}:
+                  </p>
+                  {skipped.join("\n")}
+                </div>
+              )}
+
               <Link
                 href="/data"
                 className="inline-block text-sm underline hover:no-underline"
               >
-                View all imports & data
+                View all imports &amp; data
               </Link>
             </div>
           )}

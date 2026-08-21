@@ -13,6 +13,7 @@ The stored `amount` is always the positive magnitude — direction lives in `typ
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from decimal import Decimal
 
@@ -57,6 +58,44 @@ def _resolve_type(row: ParsedRow, category: Category | None) -> str:
     return "expense" if row.amount < 0 else "income"
 
 
+# --- Duplicate detection (task 3.4, FR-2.4) ---
+#
+# Two transactions are considered duplicates when they share a company and the
+# same (date, amount, type, description). Category is intentionally excluded so a
+# re-import still matches even if categorization differs. This catches the common
+# cases — re-uploading the same file, or re-submitting the guided form — while
+# accepting that genuinely-identical entries (two ₹50 coffees, same note, same
+# day) can't be told apart and will be treated as one.
+
+_Signature = tuple[dt.date, Decimal, str, str]
+
+
+def _signature(
+    date: dt.date, amount: Decimal, txn_type: str, description: str | None
+) -> _Signature:
+    return (
+        date,
+        Decimal(amount).quantize(Decimal("0.01")),
+        txn_type,
+        (description or "").strip().lower(),
+    )
+
+
+async def _existing_signatures(
+    db: AsyncSession, company_id: uuid.UUID
+) -> set[_Signature]:
+    """Signatures of the company's existing transactions, for dedupe checks."""
+    result = await db.execute(
+        select(
+            Transaction.date,
+            Transaction.amount,
+            Transaction.type,
+            Transaction.description,
+        ).where(Transaction.company_id == company_id)
+    )
+    return {_signature(d, a, t, desc) for d, a, t, desc in result.all()}
+
+
 async def process_upload(
     db: AsyncSession,
     company_id: uuid.UUID,
@@ -84,6 +123,11 @@ async def process_upload(
     db.add(batch)
     await db.flush()  # assign batch.id before creating transactions
 
+    # Seed with existing signatures so re-imports AND within-file repeats are
+    # both caught as duplicates (FR-2.4).
+    seen = await _existing_signatures(db, company_id)
+    messages = list(parsed.errors)
+
     transactions: list[Transaction] = []
     for row in parsed.rows:
         category = (
@@ -91,6 +135,17 @@ async def process_upload(
             if row.category_name
             else None
         )
+        txn_type = _resolve_type(row, category)
+        amount = abs(row.amount) if isinstance(row.amount, Decimal) else row.amount
+
+        signature = _signature(row.date, amount, txn_type, row.description)
+        if signature in seen:
+            messages.append(
+                f"Row {row.source_row}: duplicate of an existing transaction — skipped."
+            )
+            continue
+        seen.add(signature)
+
         txn = Transaction(
             company_id=company_id,
             category_id=category.id if category else None,
@@ -98,14 +153,14 @@ async def process_upload(
             upload_batch_id=batch.id,
             date=row.date,
             description=row.description,
-            amount=abs(row.amount) if isinstance(row.amount, Decimal) else row.amount,
-            type=_resolve_type(row, category),
+            amount=amount,
+            type=txn_type,
         )
         db.add(txn)
         transactions.append(txn)
 
     batch.row_count = len(transactions)
-    batch.error_log = "\n".join(parsed.errors) if parsed.errors else None
+    batch.error_log = "\n".join(messages) if messages else None
     batch.status = "completed"
 
     await db.commit()
@@ -182,16 +237,21 @@ async def create_manual_transactions(
     db: AsyncSession,
     company_id: uuid.UUID,
     entries: list[ManualTransactionInput],
-) -> list[Transaction]:
+) -> tuple[list[Transaction], list[str]]:
     """Create `source="manual"` transactions from the guided flow.
 
-    Manual entries are first-class — they land in the same `transactions` table
-    as uploads (FR-2.6), differing only by `source` and a null `upload_batch_id`.
+    Returns `(created, skipped_duplicate_messages)`. Entries that duplicate an
+    existing transaction (or a another entry in the same submission) are skipped
+    and reported rather than double-entered (FR-2.4). Manual entries are
+    first-class — they land in the same `transactions` table as uploads (FR-2.6),
+    differing only by `source` and a null `upload_batch_id`.
     Raises ManualEntryError if an entry names a category the company can't use.
     """
     usable = {c.id: c for c in await list_categories(db, company_id)}
+    seen = await _existing_signatures(db, company_id)
 
     created: list[Transaction] = []
+    skipped: list[str] = []
     for entry in entries:
         category = None
         if entry.category_id is not None:
@@ -202,6 +262,15 @@ async def create_manual_transactions(
         txn_type = entry.type or (category.type if category else None)
         if txn_type is None:  # schema guarantees this, belt-and-suspenders
             raise ManualEntryError("Each entry needs a category or a type.")
+
+        signature = _signature(entry.date, entry.amount, txn_type, entry.description)
+        if signature in seen:
+            label = entry.description or (category.name if category else txn_type)
+            skipped.append(
+                f"{entry.date}: {label} (₹{entry.amount}) looks like a duplicate — skipped."
+            )
+            continue
+        seen.add(signature)
 
         txn = Transaction(
             company_id=company_id,
@@ -219,7 +288,7 @@ async def create_manual_transactions(
     await db.commit()
     for txn in created:
         await db.refresh(txn)
-    return created
+    return created, skipped
 
 
 async def list_transactions(

@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 3 **in progress** — 3.1–3.3 done: `categories` seeded, CSV/XLSX upload, and guided plain-language manual entry all working end-to-end (schema at migration `0003`; 3.3 reused `transactions` with `source="manual"`, no migration). Next: 3.4 (upload/entry validation + duplicate detection).
+**Phase:** Phase 3 **in progress** — 3.1–3.4 done: categories seeded, CSV/XLSX upload, guided manual entry, and upload/entry validation + duplicate detection all working end-to-end (schema at migration `0003`; 3.4 added dedupe with no migration). Next: 3.5 (edit/delete previously entered data).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -30,6 +30,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
 - ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
 - ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select.
+- ✅ **Validation + dedupe (3.4)** — No migration. Missing-date/non-numeric already handled (uploads skip+report; manual via Pydantic). Added **duplicate detection** on both paths: signature `(date, amount, type, description)` per company (category excluded so re-imports match). Uploads seed the seen-set from existing rows → re-upload/within-file repeats skipped and listed in `error_log` (parser now carries `source_row` for "Row N" messages). Manual `POST /transactions` now returns `{created, skipped_duplicates}` (dupes skipped, not double-entered), surfaced in `/data/manual`. **76 backend tests pass** (4 new: 2 upload + 2 manual dedupe). Verified live: re-upload same CSV → row_count 0 + per-row dup messages; manual re-submit → skipped.
 - ✅ **Manual entry (3.3)** — Guided plain-language flow (FR-2.3), no migration (reuses `transactions`, `source="manual"`). Backend: `GET /categories?company_id=` (defaults + company's), `POST /transactions` (batch manual create; type from category, explicit override e.g. Other-as-income; amount `>0`; 400 bad category / 404 not-owner), `GET /transactions?company_id=` (upload+manual, newest first) — all owner-scoped. Frontend: `/data/manual` asks one question per category ("How much did you spend on rent?") for a single date, "money in/out" hint per row (toggle on Other), submits filled answers as a batch; linked from `/data`. Manual entries land identically to uploads → feed KPIs with no conversion (FR-2.6, confirmed in 3.6). **72 backend tests pass** (9 new). Verified live on Supabase.
 - ✅ **Data upload (3.2)** — Backend: `UploadBatch` + `Transaction` models (`schema.md` §4–5; check constraints on `status`/`source`/`type`, FK cascades, `amount` numeric(14,2) stored as positive magnitude). Migration `0003` **applied to Supabase** (head). DB-free `parsing.py` (alias header mapping, Indian-format amounts, parenthesised negatives, bad-row skip w/ messages) + `service.py` (category name-match → `category_id`; type = explicit col → category type → amount sign). Endpoints `POST /uploads` (multipart file+company_id), `GET /uploads?company_id=`, `GET /uploads/{id}` — all owner-scoped (cross-user → 404). Frontend: `/data` page (file picker, import result table, past imports), linked from dashboard; `apiUpload` + upload API calls. **63 backend tests pass** (19 new: 8 parsing unit + 9 upload endpoint + model structure). Verified live: CSV with `1,20,000` → 120000.00, categories mapped, types resolved, bad row skipped→error_log; list/get; ownership 404.
 - ✅ **Categories (3.1)** — `Category` model in `app/transactions/models.py` per `schema.md` §3 (nullable `company_id` → NULL = system default, FK→companies `ON DELETE CASCADE`, `type` check constraint `income`|`expense`, index on `company_id`). Alembic migration `0002` creates the table and seeds 7 system defaults (Revenue=income; Payroll/Rent/Marketing/Software/Tools/Operations/Other=expense) from a frozen list. **Applied to Supabase** (head `0002`); 7 rows + check constraint verified live (constraint also confirmed to reject a bad type). Living default list: `app/transactions/categories.py::DEFAULT_CATEGORIES`. Registered in `env.py` + `main.py`. **44 backend tests pass** (5 new: 4 constant + 1 model structure). No endpoint/UI yet — that arrives with the phases that consume categories.
@@ -44,10 +45,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **3.4** — Upload/entry validation: missing dates, non-numeric amounts, duplicates (FR-2.4). Builds on the per-row error handling already in the parser (missing-date/non-numeric already skipped+reported); add **duplicate detection** (same date+amount+description within a company/upload) and surface validation feedback to the user for both upload and manual paths.
-2. **3.5** — Edit/delete previously entered/uploaded data (FR-2.5). A `GET /transactions?company_id=` list endpoint already exists; add PATCH/DELETE + a frontend transactions table with edit/delete.
+1. **3.5** — Edit/delete previously entered/uploaded data (FR-2.5). A `GET /transactions?company_id=` list endpoint already exists; add `PATCH`/`DELETE /transactions/{id}` (owner-scoped) + a frontend transactions table with inline edit/delete. On edit, keep the stored-positive-amount + `type` conventions.
+2. **3.6** — Confirm manual data flows into KPIs/dashboard/reports identically to uploads, no conversion step (FR-2.6). Largely already true by design (same table, `source` only differs) — this task is the explicit verification once the financial engine exists.
 
-Phase 2 done; Phase 3 (data input) underway (3.1–3.3 done). Order follows the dependency chain — nothing downstream works without data + the financial engine first.
+Phase 2 done; Phase 3 (data input) underway (3.1–3.4 done). Order follows the dependency chain — nothing downstream works without data + the financial engine first.
 
 ---
 
@@ -61,6 +62,14 @@ Phase 2 done; Phase 3 (data input) underway (3.1–3.3 done). Order follows the 
 ---
 
 ## Log
+
+### 2026-08-21 — Phase 3.4 DONE: upload/entry validation + duplicate detection (FR-2.4)
+- **No migration.** Missing-date / non-numeric amounts were already handled (uploads skip+report per row; manual rejected by Pydantic — date required, amount `>0`). This task adds **duplicate detection** on both paths.
+- **Dedupe design:** signature = `(date, amount(2dp), type, normalized description)` scoped to a company; category deliberately excluded so a re-import still matches. `service._existing_signatures` loads the company's current signatures; the per-run `seen` set is seeded from them, so both re-imports/re-submissions *and* repeats within one file/submission are caught. Trade-off (documented): two genuinely identical entries collapse to one.
+- **Uploads:** `parsing.ParsedRow` gained `source_row` (file line no.); `process_upload` skips duplicates and appends `Row N: duplicate … — skipped.` to `error_log`; `row_count` counts only inserted rows.
+- **Manual:** `create_manual_transactions` now returns `(created, skipped_messages)`; `POST /transactions` response changed to `ManualEntryResult {created, skipped_duplicates}`. Frontend `/data/manual` shows saved entries + an amber "skipped N likely duplicates" panel; `lib/api.ts` type updated.
+- **Verified:** 76 backend tests pass (4 new — re-upload skips all as dup, within-file dup, manual dup-of-existing, manual within-batch dup). Live on Supabase: upload #1 row_count 2 → re-upload same file row_count 0 with two "Row N: duplicate" messages; manual create 1 → re-submit created 0 / skipped 1. Frontend lint + build + TS clean. Test data cleaned up.
+- **Docs updated:** architecture §3 (validation & dedupe note + manual response shape), backend README (upload + manual dedupe), `tasks.md` 3.4 → [x].
 
 ### 2026-08-21 — Phase 3.3 DONE: guided manual data entry (plain-language), end-to-end
 - **No migration** — manual entries reuse the `transactions` table with `source="manual"` + null `upload_batch_id`, so they're first-class and feed KPIs identically to uploads (FR-2.6, to be confirmed in 3.6).

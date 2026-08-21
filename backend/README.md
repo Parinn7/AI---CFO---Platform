@@ -152,7 +152,10 @@ uploads target a company the caller owns. The parser (`app/transactions/parsing.
 is DB-free and maps real-world headers by alias — it needs a **date** and an
 **amount** column; **description**, **category**, and **type** are used if
 present. Amounts are stored as a positive magnitude with direction in `type`;
-unparseable rows are skipped and reported in the batch's `error_log`.
+unparseable rows (missing date, non-numeric amount) and **duplicates** are
+skipped and reported in the batch's `error_log` (FR-2.4). A duplicate is any row
+matching an existing transaction on `(date, amount, type, description)` within
+the company — so re-uploading the same file imports nothing.
 
 | Endpoint | Purpose |
 |---|---|
@@ -176,7 +179,7 @@ no `upload_batch_id`), so they feed KPIs/reports identically (FR-2.6).
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/v1/categories?company_id=` | Categories the prompts render from (defaults + company's). |
-| `POST /api/v1/transactions` | Batch-create manual transactions. `type` from category (explicit override allowed); amount `> 0`. `400` bad category, `404` not your company. |
+| `POST /api/v1/transactions` | Batch-create manual transactions → `{created, skipped_duplicates}`. `type` from category (explicit override allowed); amount `> 0`; exact duplicates skipped (FR-2.4). `400` bad category, `404` not your company. |
 | `GET /api/v1/transactions?company_id=` | A company's transactions (upload + manual), newest first. |
 
 ```bash

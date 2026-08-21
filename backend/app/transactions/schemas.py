@@ -80,3 +80,11 @@ class UploadResult(BaseModel):
 
     batch: UploadBatchRead
     transactions: list[TransactionRead]
+
+
+class ManualEntryResult(BaseModel):
+    """Response for POST /transactions: what was saved, and which entries were
+    skipped as duplicates (FR-2.4)."""
+
+    created: list[TransactionRead]
+    skipped_duplicates: list[str]

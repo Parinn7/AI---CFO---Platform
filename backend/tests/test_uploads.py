@@ -186,6 +186,38 @@ async def test_list_and_get_batch(client: AsyncClient):
     assert len(detail.json()["transactions"]) == 1
 
 
+async def test_reupload_same_file_skips_all_as_duplicates(client: AsyncClient):
+    headers = await _auth(client)
+    cid = await _company(client, headers)
+    csv = (
+        b"date,amount,description\n"
+        b"2026-01-05,120000,Client invoice\n"
+        b"2026-01-06,25000,Office rent\n"
+    )
+    first = await client.post("/api/v1/uploads", headers=headers, **_upload(cid, csv))
+    assert first.json()["batch"]["row_count"] == 2
+
+    second = await client.post("/api/v1/uploads", headers=headers, **_upload(cid, csv))
+    batch = second.json()["batch"]
+    assert batch["row_count"] == 0
+    assert second.json()["transactions"] == []
+    assert "duplicate" in (batch["error_log"] or "").lower()
+
+
+async def test_within_file_duplicate_rows_skipped(client: AsyncClient):
+    headers = await _auth(client)
+    cid = await _company(client, headers)
+    csv = (
+        b"date,amount,description\n"
+        b"2026-02-01,900,Domain\n"
+        b"2026-02-01,900,Domain\n"  # exact duplicate line
+    )
+    resp = await client.post("/api/v1/uploads", headers=headers, **_upload(cid, csv))
+    batch = resp.json()["batch"]
+    assert batch["row_count"] == 1
+    assert "duplicate" in (batch["error_log"] or "").lower()
+
+
 async def test_cannot_get_another_users_batch(client: AsyncClient):
     headers_a = await _auth(client, "a@example.com")
     cid_a = await _company(client, headers_a)

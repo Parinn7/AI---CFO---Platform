@@ -30,6 +30,7 @@ from app.transactions import service
 from app.transactions.parsing import UploadParseError
 from app.transactions.schemas import (
     CategoryRead,
+    ManualEntryResult,
     ManualTransactionBatch,
     TransactionRead,
     UploadBatchRead,
@@ -124,25 +125,29 @@ transactions_router = APIRouter(prefix="/transactions", tags=["transactions"])
 
 
 @transactions_router.post(
-    "", response_model=list[TransactionRead], status_code=status.HTTP_201_CREATED
+    "", response_model=ManualEntryResult, status_code=status.HTTP_201_CREATED
 )
 async def create_manual_transactions(
     payload: ManualTransactionBatch,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[TransactionRead]:
+) -> ManualEntryResult:
     """Create one or more manual (`source="manual"`) transactions from the
-    guided flow. Entries land in the same table as uploads (FR-2.6)."""
+    guided flow. Entries land in the same table as uploads (FR-2.6); exact
+    duplicates are skipped and reported (FR-2.4)."""
     await _require_company(payload.company_id, current_user, db)
     try:
-        created = await service.create_manual_transactions(
+        created, skipped = await service.create_manual_transactions(
             db, payload.company_id, payload.transactions
         )
     except service.ManualEntryError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         )
-    return [TransactionRead.model_validate(t) for t in created]
+    return ManualEntryResult(
+        created=[TransactionRead.model_validate(t) for t in created],
+        skipped_duplicates=skipped,
+    )
 
 
 @transactions_router.get("", response_model=list[TransactionRead])
