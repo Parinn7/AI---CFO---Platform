@@ -61,6 +61,12 @@ export default function DashboardPage() {
           >
             Import data
           </Link>
+          <Link
+            href="/transactions"
+            className="rounded-md border border-black/15 dark:border-white/20 px-4 py-2 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+          >
+            Transactions
+          </Link>
           <button
             type="button"
             onClick={logout}

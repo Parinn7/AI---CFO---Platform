@@ -118,12 +118,20 @@ export default function DataPage() {
     <main className="flex-1 w-full max-w-3xl mx-auto flex flex-col gap-6 p-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Import data</h1>
-        <Link
-          href="/dashboard"
-          className="text-sm underline hover:no-underline text-black/60 dark:text-white/60"
-        >
-          Dashboard
-        </Link>
+        <div className="flex items-center gap-3 text-sm">
+          <Link
+            href="/transactions"
+            className="underline hover:no-underline text-black/60 dark:text-white/60"
+          >
+            Transactions
+          </Link>
+          <Link
+            href="/dashboard"
+            className="underline hover:no-underline text-black/60 dark:text-white/60"
+          >
+            Dashboard
+          </Link>
+        </div>
       </div>
 
       {!company ? (

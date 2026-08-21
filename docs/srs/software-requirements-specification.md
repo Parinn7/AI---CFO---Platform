@@ -122,6 +122,8 @@ The platform supports two equally first-class data input paths — neither is a 
 
 ### 3.6 AI CFO Assistant
 
+**Core principle:** The AI is used strictly for interpretation and analytics — explaining, summarizing, and contextualizing numbers in plain language. It never performs the underlying financial calculations itself. All KPIs, totals, cash flow, and scenario results are computed exclusively by deterministic backend code (see FR-3.x, FR-4.x, FR-5.2, and `system-architecture.md` §4.1 for the full architectural rule). This is a deliberate design decision: LLMs are unreliable at precise arithmetic over large or complex numeric data, which is one of the core reasons this platform exists rather than a user simply using a general-purpose AI tool.
+
 | ID | Requirement |
 |---|---|
 | FR-6.1 | The system shall provide a conversational chat interface for financial questions |
@@ -129,6 +131,7 @@ The platform supports two equally first-class data input paths — neither is a 
 | FR-6.3 | The AI CFO Assistant shall explain financial concepts in plain, non-technical language |
 | FR-6.4 | The AI CFO Assistant shall be able to reference specific KPIs and trends when answering |
 | FR-6.5 | The system shall clearly indicate that AI-generated advice is not a substitute for a licensed financial professional |
+| FR-6.6 | The AI CFO Assistant shall never perform financial calculations itself — it shall only receive and explain figures already computed by the Financial Engine (FR-3.x, FR-4.x) |
 
 ### 3.7 Reporting
 

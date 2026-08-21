@@ -27,7 +27,7 @@ from app.transactions.parsing import (
     UploadParseError,
     parse_upload,
 )
-from app.transactions.schemas import ManualTransactionInput
+from app.transactions.schemas import ManualTransactionInput, TransactionUpdate
 
 # 10 MB cap (NFR-5). Checked before parsing so oversized files fail fast.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -301,3 +301,44 @@ async def list_transactions(
         .order_by(Transaction.date.desc(), Transaction.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+# --- Edit / delete a single transaction (task 3.5, FR-2.5) ---
+
+
+async def get_transaction_for_user(
+    db: AsyncSession, transaction_id: uuid.UUID, owner_id: uuid.UUID
+) -> Transaction | None:
+    """Return the transaction only if it belongs to a company owned by `owner_id`."""
+    result = await db.execute(
+        select(Transaction)
+        .join(Company, Company.id == Transaction.company_id)
+        .where(Transaction.id == transaction_id, Company.owner_user_id == owner_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_transaction(
+    db: AsyncSession, transaction: Transaction, data: TransactionUpdate
+) -> Transaction:
+    """Apply a partial update. Only fields the client sent are changed; a
+    supplied non-null `category_id` must be one the company can use.
+    Raises ManualEntryError on an invalid category."""
+    fields = data.model_dump(exclude_unset=True)
+
+    if fields.get("category_id") is not None:
+        usable = {c.id for c in await list_categories(db, transaction.company_id)}
+        if fields["category_id"] not in usable:
+            raise ManualEntryError("Unknown or inaccessible category.")
+
+    for field, value in fields.items():
+        setattr(transaction, field, value)
+
+    await db.commit()
+    await db.refresh(transaction)
+    return transaction
+
+
+async def delete_transaction(db: AsyncSession, transaction: Transaction) -> None:
+    await db.delete(transaction)
+    await db.commit()

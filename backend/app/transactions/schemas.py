@@ -46,6 +46,19 @@ class ManualTransactionBatch(BaseModel):
     transactions: list[ManualTransactionInput] = Field(min_length=1)
 
 
+class TransactionUpdate(BaseModel):
+    """Partial edit of a single transaction (task 3.5, FR-2.5). Only fields the
+    client sends are changed. Note: changing `category_id` does NOT recompute
+    `type` — `type` is only changed if sent explicitly (schema.md §4 keeps a
+    transaction's income/expense class stable across category edits)."""
+
+    date: dt.date | None = None
+    amount: Decimal | None = Field(default=None, gt=0, max_digits=14, decimal_places=2)
+    category_id: uuid.UUID | None = None
+    type: Literal["income", "expense"] | None = None
+    description: str | None = Field(default=None, max_length=500)
+
+
 class TransactionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

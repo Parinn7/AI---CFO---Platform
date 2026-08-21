@@ -181,6 +181,8 @@ no `upload_batch_id`), so they feed KPIs/reports identically (FR-2.6).
 | `GET /api/v1/categories?company_id=` | Categories the prompts render from (defaults + company's). |
 | `POST /api/v1/transactions` | Batch-create manual transactions → `{created, skipped_duplicates}`. `type` from category (explicit override allowed); amount `> 0`; exact duplicates skipped (FR-2.4). `400` bad category, `404` not your company. |
 | `GET /api/v1/transactions?company_id=` | A company's transactions (upload + manual), newest first. |
+| `PATCH /api/v1/transactions/{id}` | Edit a transaction (FR-2.5); partial. Changing category doesn't recompute `type`. `400` bad category, `404` not yours. |
+| `DELETE /api/v1/transactions/{id}` | Delete a transaction (FR-2.5); `204`, `404` if not yours. |
 
 ```bash
 curl -X POST localhost:8000/api/v1/transactions -H "Authorization: Bearer $TOKEN" \

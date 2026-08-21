@@ -33,6 +33,7 @@ from app.transactions.schemas import (
     ManualEntryResult,
     ManualTransactionBatch,
     TransactionRead,
+    TransactionUpdate,
     UploadBatchRead,
     UploadResult,
 )
@@ -160,3 +161,45 @@ async def list_transactions(
     await _require_company(company_id, current_user, db)
     txns = await service.list_transactions(db, company_id)
     return [TransactionRead.model_validate(t) for t in txns]
+
+
+async def _require_own_transaction(
+    transaction_id: uuid.UUID, user: User, db: AsyncSession
+):
+    txn = await service.get_transaction_for_user(db, transaction_id, user.id)
+    if txn is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found."
+        )
+    return txn
+
+
+@transactions_router.patch("/{transaction_id}", response_model=TransactionRead)
+async def update_transaction(
+    transaction_id: uuid.UUID,
+    payload: TransactionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TransactionRead:
+    """Edit a previously entered/uploaded transaction (FR-2.5)."""
+    txn = await _require_own_transaction(transaction_id, current_user, db)
+    try:
+        txn = await service.update_transaction(db, txn, payload)
+    except service.ManualEntryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+    return TransactionRead.model_validate(txn)
+
+
+@transactions_router.delete(
+    "/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_transaction(
+    transaction_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a previously entered/uploaded transaction (FR-2.5)."""
+    txn = await _require_own_transaction(transaction_id, current_user, db)
+    await service.delete_transaction(db, txn)

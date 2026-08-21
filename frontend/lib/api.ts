@@ -96,6 +96,17 @@ export async function apiPatch<T>(
   return res.json() as Promise<T>;
 }
 
+export async function apiDelete(path: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await errorMessage(res));
+  }
+}
+
 /** Multipart POST for file uploads. Deliberately does NOT set Content-Type so
  * the browser adds the multipart boundary itself. */
 export async function apiUpload<T>(
@@ -328,4 +339,24 @@ export function listTransactions(
     `/api/v1/transactions?company_id=${encodeURIComponent(companyId)}`,
     token,
   );
+}
+
+export type TransactionUpdate = {
+  date?: string;
+  amount?: string;
+  category_id?: string | null;
+  type?: "income" | "expense";
+  description?: string | null;
+};
+
+export function updateTransaction(
+  id: string,
+  patch: TransactionUpdate,
+  token: string,
+): Promise<Transaction> {
+  return apiPatch<Transaction>(`/api/v1/transactions/${id}`, patch, token);
+}
+
+export function deleteTransaction(id: string, token: string): Promise<void> {
+  return apiDelete(`/api/v1/transactions/${id}`, token);
 }

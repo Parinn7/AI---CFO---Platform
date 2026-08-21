@@ -18,6 +18,7 @@ frontend/
     company/           # /company — create/edit company profile (FR-1.3)
     data/              # /data — CSV/XLSX import + imported-transaction view (FR-2.1/2.2)
     data/manual/       # /data/manual — guided plain-language manual entry (FR-2.3)
+    transactions/      # /transactions — list + inline edit/delete of transactions (FR-2.5)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm)
   contexts/            # AuthContext — JWT session (localStorage), current user
@@ -54,6 +55,10 @@ Guided manual entry (FR-2.3): `/data/manual` (linked from `/data`) asks a
 plain-language question per category ("How much did you spend on rent?") for a
 single date, then POSTs the filled-in answers via `createManualTransactions`.
 These are ordinary manual transactions — no separate conversion step (FR-2.6).
+
+Manage transactions (FR-2.5): `/transactions` (linked from the dashboard and
+`/data`) lists all transactions and supports inline edit + delete via
+`updateTransaction`/`deleteTransaction` (`PATCH`/`DELETE /transactions/{id}`).
 
 ## Company profile (Phase 2.3)
 
