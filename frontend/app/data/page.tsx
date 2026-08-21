@@ -144,6 +144,13 @@ export default function DataPage() {
               optional <strong>description</strong>, <strong>category</strong>,
               and <strong>type</strong> columns are used when present.
             </p>
+            <p className="text-sm text-black/60 dark:text-white/60">
+              Don&apos;t have a file?{" "}
+              <Link href="/data/manual" className="underline hover:no-underline">
+                Enter your data manually
+              </Link>{" "}
+              by answering a few plain-language questions.
+            </p>
 
             <input
               ref={fileInputRef}

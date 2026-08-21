@@ -1,8 +1,10 @@
-"""Upload endpoints (task 3.2, FR-2.1/FR-2.2) — import CSV/XLSX, list/inspect batches.
+"""Data-input endpoints (Phase 3) — CSV/XLSX upload (3.2, FR-2.1/2.2), the
+category list + guided manual entry (3.3, FR-2.3), and a company transactions
+list.
 
 All routes require a session and are scoped to a company the caller owns
 (reusing `companies.service.get_company_for_user`), so no cross-company access.
-Mounted under `{api_v1_prefix}/uploads` in `app.main`.
+The three routers here are mounted under `{api_v1_prefix}` in `app.main`.
 """
 
 from __future__ import annotations
@@ -26,7 +28,13 @@ from app.companies.service import get_company_for_user
 from app.core.database import get_db
 from app.transactions import service
 from app.transactions.parsing import UploadParseError
-from app.transactions.schemas import UploadBatchRead, UploadResult
+from app.transactions.schemas import (
+    CategoryRead,
+    ManualTransactionBatch,
+    TransactionRead,
+    UploadBatchRead,
+    UploadResult,
+)
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
@@ -91,3 +99,59 @@ async def get_upload(
     return UploadResult(
         batch=UploadBatchRead.model_validate(batch), transactions=transactions
     )
+
+
+# --- Categories (task 3.3) — powers the guided manual-entry prompts ---
+
+categories_router = APIRouter(prefix="/categories", tags=["categories"])
+
+
+@categories_router.get("", response_model=list[CategoryRead])
+async def list_categories(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[CategoryRead]:
+    """List the categories a company can use (system defaults + its own)."""
+    await _require_company(company_id, current_user, db)
+    categories = await service.list_categories(db, company_id)
+    return [CategoryRead.model_validate(c) for c in categories]
+
+
+# --- Transactions (task 3.3) — guided manual entry + list ---
+
+transactions_router = APIRouter(prefix="/transactions", tags=["transactions"])
+
+
+@transactions_router.post(
+    "", response_model=list[TransactionRead], status_code=status.HTTP_201_CREATED
+)
+async def create_manual_transactions(
+    payload: ManualTransactionBatch,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TransactionRead]:
+    """Create one or more manual (`source="manual"`) transactions from the
+    guided flow. Entries land in the same table as uploads (FR-2.6)."""
+    await _require_company(payload.company_id, current_user, db)
+    try:
+        created = await service.create_manual_transactions(
+            db, payload.company_id, payload.transactions
+        )
+    except service.ManualEntryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+    return [TransactionRead.model_validate(t) for t in created]
+
+
+@transactions_router.get("", response_model=list[TransactionRead])
+async def list_transactions(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TransactionRead]:
+    """List a company's transactions (upload + manual), newest first."""
+    await _require_company(company_id, current_user, db)
+    txns = await service.list_transactions(db, company_id)
+    return [TransactionRead.model_validate(t) for t in txns]

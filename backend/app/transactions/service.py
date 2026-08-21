@@ -26,9 +26,14 @@ from app.transactions.parsing import (
     UploadParseError,
     parse_upload,
 )
+from app.transactions.schemas import ManualTransactionInput
 
 # 10 MB cap (NFR-5). Checked before parsing so oversized files fail fast.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+class ManualEntryError(Exception):
+    """A manual entry references a category the caller can't use."""
 
 
 async def _category_lookup(
@@ -151,5 +156,79 @@ async def list_transactions_for_batch(
         select(Transaction)
         .where(Transaction.upload_batch_id == batch_id)
         .order_by(Transaction.date, Transaction.created_at)
+    )
+    return list(result.scalars().all())
+
+
+# --- Categories + manual entry (task 3.3) ---
+
+
+async def list_categories(
+    db: AsyncSession, company_id: uuid.UUID
+) -> list[Category]:
+    """Categories the company can use: system defaults (`company_id IS NULL`)
+    plus any it owns. Ordered defaults-first, then by name."""
+    result = await db.execute(
+        select(Category)
+        .where(
+            or_(Category.company_id.is_(None), Category.company_id == company_id)
+        )
+        .order_by(Category.company_id.is_(None).desc(), Category.name)
+    )
+    return list(result.scalars().all())
+
+
+async def create_manual_transactions(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    entries: list[ManualTransactionInput],
+) -> list[Transaction]:
+    """Create `source="manual"` transactions from the guided flow.
+
+    Manual entries are first-class — they land in the same `transactions` table
+    as uploads (FR-2.6), differing only by `source` and a null `upload_batch_id`.
+    Raises ManualEntryError if an entry names a category the company can't use.
+    """
+    usable = {c.id: c for c in await list_categories(db, company_id)}
+
+    created: list[Transaction] = []
+    for entry in entries:
+        category = None
+        if entry.category_id is not None:
+            category = usable.get(entry.category_id)
+            if category is None:
+                raise ManualEntryError("Unknown or inaccessible category.")
+
+        txn_type = entry.type or (category.type if category else None)
+        if txn_type is None:  # schema guarantees this, belt-and-suspenders
+            raise ManualEntryError("Each entry needs a category or a type.")
+
+        txn = Transaction(
+            company_id=company_id,
+            category_id=entry.category_id,
+            source="manual",
+            upload_batch_id=None,
+            date=entry.date,
+            description=entry.description,
+            amount=entry.amount,  # schema enforces > 0 (positive magnitude)
+            type=txn_type,
+        )
+        db.add(txn)
+        created.append(txn)
+
+    await db.commit()
+    for txn in created:
+        await db.refresh(txn)
+    return created
+
+
+async def list_transactions(
+    db: AsyncSession, company_id: uuid.UUID
+) -> list[Transaction]:
+    """All of a company's transactions (upload + manual), newest first."""
+    result = await db.execute(
+        select(Transaction)
+        .where(Transaction.company_id == company_id)
+        .order_by(Transaction.date.desc(), Transaction.created_at.desc())
     )
     return list(result.scalars().all())

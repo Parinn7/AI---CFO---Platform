@@ -275,3 +275,52 @@ export function getUpload(
 ): Promise<UploadResult> {
   return apiGet<UploadResult>(`/api/v1/uploads/${batchId}`, token);
 }
+
+// --- Categories & manual entry (Phase 3.3) ---
+
+export type Category = {
+  id: string;
+  company_id: string | null; // null = system default
+  name: string;
+  type: "income" | "expense";
+};
+
+export type ManualEntryInput = {
+  date: string;
+  amount: string;
+  category_id?: string | null;
+  type?: "income" | "expense" | null;
+  description?: string | null;
+};
+
+export function listCategories(
+  companyId: string,
+  token: string,
+): Promise<Category[]> {
+  return apiGet<Category[]>(
+    `/api/v1/categories?company_id=${encodeURIComponent(companyId)}`,
+    token,
+  );
+}
+
+export function createManualTransactions(
+  companyId: string,
+  transactions: ManualEntryInput[],
+  token: string,
+): Promise<Transaction[]> {
+  return apiPost<Transaction[]>(
+    "/api/v1/transactions",
+    { company_id: companyId, transactions },
+    token,
+  );
+}
+
+export function listTransactions(
+  companyId: string,
+  token: string,
+): Promise<Transaction[]> {
+  return apiGet<Transaction[]>(
+    `/api/v1/transactions?company_id=${encodeURIComponent(companyId)}`,
+    token,
+  );
+}

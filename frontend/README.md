@@ -17,6 +17,7 @@ frontend/
     dashboard/         # /dashboard — auth-guarded placeholder (real dashboard: Phase 5)
     company/           # /company — create/edit company profile (FR-1.3)
     data/              # /data — CSV/XLSX import + imported-transaction view (FR-2.1/2.2)
+    data/manual/       # /data/manual — guided plain-language manual entry (FR-2.3)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm)
   contexts/            # AuthContext — JWT session (localStorage), current user
@@ -48,6 +49,11 @@ uploads a CSV/XLSX for the user's company via `uploadFile` in `lib/api.ts`
 (multipart through `apiUpload`), then shows the import result — rows imported,
 any skipped-row messages, and the parsed transactions — plus a list of past
 imports. Requires a company profile first.
+
+Guided manual entry (FR-2.3): `/data/manual` (linked from `/data`) asks a
+plain-language question per category ("How much did you spend on rent?") for a
+single date, then POSTs the filled-in answers via `createManualTransactions`.
+These are ordinary manual transactions — no separate conversion step (FR-2.6).
 
 ## Company profile (Phase 2.3)
 

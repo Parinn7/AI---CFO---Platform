@@ -166,6 +166,26 @@ curl -X POST localhost:8000/api/v1/uploads -H "Authorization: Bearer $TOKEN" \
   -F "company_id=$COMPANY_ID" -F "file=@sample.csv;type=text/csv"
 ```
 
+## Guided manual entry (Phase 3.3)
+
+Manual entry is a **first-class** input path (SRS FR-2.3), not a fallback. The
+frontend asks plain-language questions per category; answers become manual
+transactions in the **same `transactions` table** as uploads (`source="manual"`,
+no `upload_batch_id`), so they feed KPIs/reports identically (FR-2.6).
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/categories?company_id=` | Categories the prompts render from (defaults + company's). |
+| `POST /api/v1/transactions` | Batch-create manual transactions. `type` from category (explicit override allowed); amount `> 0`. `400` bad category, `404` not your company. |
+| `GET /api/v1/transactions?company_id=` | A company's transactions (upload + manual), newest first. |
+
+```bash
+curl -X POST localhost:8000/api/v1/transactions -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"company_id":"'"$COMPANY_ID"'","transactions":[
+        {"date":"2026-01-31","amount":"150000","category_id":"<revenue-id>"}]}'
+```
+
 ## Notes
 
 - **All financial math is deterministic Python** in `financial_engine`/`scenarios`.
