@@ -62,6 +62,13 @@ Manage transactions (FR-2.5): `/transactions` (linked from the dashboard and
 It also has an **Auto-categorize** button (FR-3.1) calling `autoCategorize`,
 which deterministically fills in categories for uncategorized rows.
 
+## Financial engine client (Phase 4.2)
+
+`lib/api.ts` exposes `getFinancialSummary` (revenue/expense totals + net,
+FR-3.2) and `getCashFlow` (per-month inflow/outflow/net, FR-3.3), both taking an
+optional `startDate`/`endDate` range. These back the Phase 5 dashboard; the
+numbers are computed deterministically by the backend (no LLM).
+
 ## Company profile (Phase 2.3)
 
 `/company` (auth-guarded, linked from the dashboard) manages the user's company

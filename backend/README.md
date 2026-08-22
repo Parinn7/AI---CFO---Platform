@@ -13,7 +13,7 @@ backend/
     auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
     companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
-    financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, service, schemas (FR-3.x, FR-4.x)
+    financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, service, schemas, router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
@@ -196,6 +196,27 @@ curl -X POST localhost:8000/api/v1/transactions -H "Authorization: Bearer $TOKEN
   -H 'Content-Type: application/json' \
   -d '{"company_id":"'"$COMPANY_ID"'","transactions":[
         {"date":"2026-01-31","amount":"150000","category_id":"<revenue-id>"}]}'
+```
+
+## Financial engine — totals & cash flow (Phase 4.2)
+
+Deterministic aggregations over a company's transactions (FR-3.2/FR-3.3) — **no
+LLM** (architecture §4.1). Pure math lives in `app/financial_engine/calculations.py`
+(unit-tested without a DB); the service loads only `(date, amount, type)` rows,
+source-agnostic so manual + uploaded entries count identically (FR-2.6). Both
+endpoints are owner-scoped and accept optional `start_date`/`end_date`
+(inclusive; omit for all-time). `start_date > end_date` → `400`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/financial/summary?company_id=[&start_date=&end_date=]` | Total revenue vs. expenses + net → `{total_income, total_expenses, net, income_count, expense_count}`. |
+| `GET /api/v1/financial/cash-flow?company_id=[&start_date=&end_date=]` | Per-month inflow/outflow/net → `{months: [{month:"YYYY-MM", inflow, outflow, net}]}`, oldest→newest, only months with data. |
+
+```bash
+curl "localhost:8000/api/v1/financial/summary?company_id=$COMPANY_ID" \
+  -H "Authorization: Bearer $TOKEN"
+curl "localhost:8000/api/v1/financial/cash-flow?company_id=$COMPANY_ID&start_date=2026-01-01" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Notes

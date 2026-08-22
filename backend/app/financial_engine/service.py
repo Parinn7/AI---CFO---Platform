@@ -9,11 +9,18 @@ without a category.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.financial_engine.calculations import (
+    MonthlyCashFlow,
+    Totals,
+    compute_monthly_cash_flow,
+    compute_totals,
+)
 from app.financial_engine.categorization import guess_category
 from app.transactions.models import Transaction
 from app.transactions.service import list_categories
@@ -51,3 +58,51 @@ async def auto_categorize_company(
         await db.commit()
 
     return categorized, len(transactions) - categorized
+
+
+# --- Revenue/expense totals + cash flow (task 4.2, FR-3.2/FR-3.3) ---
+
+
+async def _load_rows(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    start_date: dt.date | None,
+    end_date: dt.date | None,
+) -> list[tuple[dt.date, object, str]]:
+    """Load `(date, amount, type)` for a company's transactions, optionally
+    bounded by an inclusive date range. Selecting only the three columns the
+    math needs keeps the aggregation cheap and source-agnostic — upload and
+    manual entries are summed identically (FR-2.6)."""
+    stmt = select(
+        Transaction.date, Transaction.amount, Transaction.type
+    ).where(Transaction.company_id == company_id)
+    if start_date is not None:
+        stmt = stmt.where(Transaction.date >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(Transaction.date <= end_date)
+    result = await db.execute(stmt)
+    return [tuple(row) for row in result.all()]
+
+
+async def company_totals(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    start_date: dt.date | None = None,
+    end_date: dt.date | None = None,
+) -> Totals:
+    """Total revenue vs. expenses for a company over an optional period
+    (FR-3.2). Deterministic — no LLM."""
+    rows = await _load_rows(db, company_id, start_date, end_date)
+    return compute_totals(rows)
+
+
+async def company_cash_flow(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    start_date: dt.date | None = None,
+    end_date: dt.date | None = None,
+) -> list[MonthlyCashFlow]:
+    """Per-month inflow/outflow/net for a company over an optional period
+    (FR-3.3). Deterministic — no LLM."""
+    rows = await _load_rows(db, company_id, start_date, end_date)
+    return compute_monthly_cash_flow(rows)

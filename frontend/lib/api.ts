@@ -376,3 +376,65 @@ export function autoCategorize(
     token,
   );
 }
+
+// --- Financial engine: revenue/expense totals + cash flow (4.2, FR-3.2/3.3) ---
+
+export type FinancialSummary = {
+  company_id: string;
+  start_date: string | null;
+  end_date: string | null;
+  total_income: string;
+  total_expenses: string;
+  net: string;
+  income_count: number;
+  expense_count: number;
+};
+
+export type MonthlyCashFlow = {
+  month: string; // "YYYY-MM"
+  inflow: string;
+  outflow: string;
+  net: string;
+};
+
+export type CashFlowResponse = {
+  company_id: string;
+  start_date: string | null;
+  end_date: string | null;
+  months: MonthlyCashFlow[];
+};
+
+function rangeQuery(
+  companyId: string,
+  startDate?: string,
+  endDate?: string,
+): string {
+  const params = new URLSearchParams({ company_id: companyId });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  return params.toString();
+}
+
+export function getFinancialSummary(
+  companyId: string,
+  token: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<FinancialSummary> {
+  return apiGet<FinancialSummary>(
+    `/api/v1/financial/summary?${rangeQuery(companyId, startDate, endDate)}`,
+    token,
+  );
+}
+
+export function getCashFlow(
+  companyId: string,
+  token: string,
+  startDate?: string,
+  endDate?: string,
+): Promise<CashFlowResponse> {
+  return apiGet<CashFlowResponse>(
+    `/api/v1/financial/cash-flow?${rangeQuery(companyId, startDate, endDate)}`,
+    token,
+  );
+}

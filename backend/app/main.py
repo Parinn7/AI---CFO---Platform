@@ -18,6 +18,7 @@ from app.transactions.router import (
     router as uploads_router,
     transactions_router,
 )
+from app.financial_engine.router import router as financial_router
 from app.core.config import settings
 from app.core.database import check_connection, dispose_engine
 
@@ -72,6 +73,7 @@ api_router.include_router(companies_router)
 api_router.include_router(uploads_router)
 api_router.include_router(categories_router)
 api_router.include_router(transactions_router)
+api_router.include_router(financial_router)
 
 app.include_router(api_router)
 
