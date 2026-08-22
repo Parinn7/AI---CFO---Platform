@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 3 **COMPLETE** (3.1–3.6 done) — categories seeded, CSV/XLSX upload, guided manual entry, validation + dedupe, edit/delete, and manual==upload equivalence all done and working end-to-end (schema at migration `0003`). Next: Phase 4 (Financial Engine) — starting with 4.1 (auto-categorization).
+**Phase:** Phase 4 **in progress** — Phase 3 complete; 4.1 done: deterministic rule-based auto-categorization (applied inline on upload + on-demand endpoint/button), working end-to-end against Supabase. Next: 4.2 (revenue/expense totals + monthly cash flow).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -30,6 +30,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
 - ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
 - ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select.
+- ✅ **Auto-categorization (4.1)** — First Financial Engine piece, **deterministic/rule-based, no LLM** (architecture §4.1). `app/financial_engine/categorization.py::guess_category(description, type)` — income → Revenue; expense → first whole-word keyword rule (Payroll/Rent/Marketing/Software-Tools/Operations), else None (unmatched left uncategorized, not guessed). `financial_engine/service.auto_categorize_company` fills `category_id` on uncategorized rows; also applied **inline during upload** for rows without a category. Endpoint `POST /transactions/auto-categorize` (owner-scoped) → `{categorized, uncategorized_remaining}`; frontend `/transactions` "Auto-categorize" button. **104 backend tests pass** (19 new: categorization unit + endpoint + inline-upload). Verified live: upload auto-cat'd rent/AWS/invoice, left "mystery blob" uncategorized.
 - ✅ **Manual == upload (3.6)** — FR-2.6 verified at the data layer: both paths write the same `transactions` table (only `source`/`upload_batch_id` differ), no read path branches on `source`, so source-agnostic aggregation counts them identically — manual entries never need "converting". Locked in by `tests/test_source_equivalence.py` (manual ₹5k + upload ₹7k income + ₹2k expense → income 12k / expense 2k across one feed; rows structurally identical bar provenance). Downstream KPI/report output re-confirmed in Phase 4/5 + task 9.5. No code/migration changed — verification + docs only.
 - ✅ **Edit/delete (3.5)** — No migration. Backend: `PATCH /transactions/{id}` (partial edit; changing category does NOT recompute `type` per schema §4; validates category is usable → 400) + `DELETE /transactions/{id}` (204), both owner-scoped via transaction→company→owner join (404 otherwise). `TransactionUpdate` schema; `get_transaction_for_user`/`update_transaction`/`delete_transaction` in service. Frontend: `/transactions` page — full list with **inline edit** (date/description/category/type/amount) + **delete** (confirm), linked from dashboard + `/data`; `apiDelete` + `updateTransaction`/`deleteTransaction`. **84 backend tests pass** (8 new incl. category-change-keeps-type, cross-user 404). Verified live: patch 200 → bad amount 422 → delete 204 → gone from list → re-delete 404.
 - ✅ **Validation + dedupe (3.4)** — No migration. Missing-date/non-numeric already handled (uploads skip+report; manual via Pydantic). Added **duplicate detection** on both paths: signature `(date, amount, type, description)` per company (category excluded so re-imports match). Uploads seed the seen-set from existing rows → re-upload/within-file repeats skipped and listed in `error_log` (parser now carries `source_row` for "Row N" messages). Manual `POST /transactions` now returns `{created, skipped_duplicates}` (dupes skipped, not double-entered), surfaced in `/data/manual`. **76 backend tests pass** (4 new: 2 upload + 2 manual dedupe). Verified live: re-upload same CSV → row_count 0 + per-row dup messages; manual re-submit → skipped.
@@ -47,10 +48,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **4.1** — Auto-categorization (FR-3.1): deterministic, rule-based (no AI — architecture §4.1). Build `app/financial_engine/` categorization (keyword → category, type-aware) and apply it to uncategorized transactions; wire it into the upload path for rows without a category, plus an explicit "auto-categorize" endpoint/button for existing data.
-2. **4.2** — Revenue/expense totals + monthly cash flow (FR-3.2, FR-3.3), the first real Financial Engine math (deterministic).
+1. **4.2** — Revenue/expense totals + monthly cash flow (FR-3.2, FR-3.3): deterministic aggregation over `transactions` (sum income vs expense by period; monthly inflow/outflow/net). Likely a `financial_engine` calc module + endpoint(s) taking a company_id + date range; no new table needed yet (`kpi_snapshots` is 4.3).
+2. **4.3** — `kpi_snapshots` generation: burn rate, runway, gross/operating margin, revenue growth (FR-4.1–4.6). Needs the `kpi_snapshots` table (schema §6) + migration `0004`.
 
-Phase 3 (data input) complete. Phase 4 (Financial Engine) next — deterministic math only, AI never calculates (SRS FR-6.6 / architecture §4.1).
+Phase 3 complete; Phase 4 (Financial Engine) underway (4.1 done). Deterministic math only — AI never calculates (SRS FR-6.6 / architecture §4.1).
 
 ---
 
@@ -64,6 +65,14 @@ Phase 3 (data input) complete. Phase 4 (Financial Engine) next — deterministic
 ---
 
 ## Log
+
+### 2026-08-22 — Phase 4.1 DONE: deterministic auto-categorization (FR-3.1), end-to-end
+- **First Financial Engine piece; no LLM** (architecture §4.1 / SRS FR-6.6). `app/financial_engine/categorization.py` — DB-free `guess_category(description, type)`: income → "Revenue" (only income category); expense → first whole-word keyword rule (Payroll/Rent/Marketing/Software-Tools/Operations), else `None`. Whole-word tokenization avoids false positives ("rent" in "different", "ads" in "roads"). Unmatched rows stay uncategorized rather than being force-assigned "Other".
+- **Service + wiring:** `financial_engine/service.auto_categorize_company` categorizes a company's `category_id IS NULL` rows; also called **inline in `process_upload`** for rows the file didn't categorize (so uploads are auto-categorized on the way in). Endpoint `POST /transactions/auto-categorize` (owner-scoped) → `{categorized, uncategorized_remaining}`. New `financial_engine/schemas.py`. No import cycle (transactions.service → financial_engine.categorization leaf; transactions.router → financial_engine.service).
+- **Frontend:** `/transactions` gained an "Auto-categorize" button (calls `autoCategorize`, refreshes, shows a summary notice); `lib/api.ts` + `autoCategorize`/`AutoCategorizeResult`.
+- **Verified:** 104 backend tests pass (19 new — categorization units incl. whole-word/no-false-positive, endpoint incl. ownership 404, inline-upload categorization; existing upload/equivalence tests still green). Live on Supabase: upload with a type column but no category → rent→Rent, "AWS subscription"→Software/Tools, "Client invoice"(income)→Revenue, "mystery blob"→uncategorized; endpoint then reports 0 new / 1 remaining. Frontend lint + build + TS clean. Test data cleaned up.
+- **Docs updated:** architecture §3 (auto-cat engine bullet), both READMEs, `tasks.md` 4.1 → [x].
+- **Note:** inline upload auto-cat only sets `category_id`; it does not alter `type` (type resolution stays explicit-column → matched-category → amount-sign from 3.2), keeping the schema §4 type-stability rule.
 
 ### 2026-08-22 — Phase 3.6 DONE: manual == upload equivalence (FR-2.6) — Phase 3 complete
 - **Verification task, no code/migration.** Decided (per the flag raised at end of 3.5) to complete 3.6 now rather than defer: the substance of FR-2.6 — "no conversion step" + identical aggregation — is verifiable at the data layer today, and the KPI/dashboard/report *output* equivalence follows because no read path branches on `source` (re-confirmed as those layers land; reports have their own check in 9.5).

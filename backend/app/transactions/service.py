@@ -21,6 +21,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.companies.models import Company
+from app.financial_engine.categorization import guess_category
 from app.transactions.models import Category, Transaction, UploadBatch
 from app.transactions.parsing import (
     ParsedRow,
@@ -137,6 +138,12 @@ async def process_upload(
         )
         txn_type = _resolve_type(row, category)
         amount = abs(row.amount) if isinstance(row.amount, Decimal) else row.amount
+
+        # Auto-categorize (FR-3.1) rows the file didn't already categorize.
+        if category is None:
+            guessed = guess_category(row.description, txn_type)
+            if guessed is not None:
+                category = categories.get(guessed.lower())
 
         signature = _signature(row.date, amount, txn_type, row.description)
         if signature in seen:

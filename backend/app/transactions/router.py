@@ -26,6 +26,8 @@ from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.companies.service import get_company_for_user
 from app.core.database import get_db
+from app.financial_engine import service as engine_service
+from app.financial_engine.schemas import AutoCategorizeRequest, AutoCategorizeResult
 from app.transactions import service
 from app.transactions.parsing import UploadParseError
 from app.transactions.schemas import (
@@ -161,6 +163,23 @@ async def list_transactions(
     await _require_company(company_id, current_user, db)
     txns = await service.list_transactions(db, company_id)
     return [TransactionRead.model_validate(t) for t in txns]
+
+
+@transactions_router.post("/auto-categorize", response_model=AutoCategorizeResult)
+async def auto_categorize(
+    payload: AutoCategorizeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AutoCategorizeResult:
+    """Deterministically assign categories to the company's uncategorized
+    transactions (FR-3.1). No LLM — rule-based (architecture §4.1)."""
+    await _require_company(payload.company_id, current_user, db)
+    categorized, remaining = await engine_service.auto_categorize_company(
+        db, payload.company_id
+    )
+    return AutoCategorizeResult(
+        categorized=categorized, uncategorized_remaining=remaining
+    )
 
 
 async def _require_own_transaction(

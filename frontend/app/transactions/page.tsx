@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
+  autoCategorize,
   deleteTransaction,
   listCategories,
   listCompanies,
@@ -50,6 +51,8 @@ export default function TransactionsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [categorizing, setCategorizing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -135,6 +138,32 @@ export default function TransactionsPage() {
     }
   }
 
+  async function onAutoCategorize() {
+    if (!token || !company) return;
+    setError(null);
+    setNotice(null);
+    setCategorizing(true);
+    try {
+      const res = await autoCategorize(company.id, token);
+      // Refresh so newly-assigned categories show.
+      setTxns(await listTransactions(company.id, token));
+      setNotice(
+        res.categorized === 0
+          ? `No new matches — ${res.uncategorized_remaining} still uncategorized.`
+          : `Categorized ${res.categorized} transaction${res.categorized === 1 ? "" : "s"}` +
+            (res.uncategorized_remaining
+              ? `, ${res.uncategorized_remaining} still uncategorized.`
+              : "."),
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Couldn't auto-categorize.",
+      );
+    } finally {
+      setCategorizing(false);
+    }
+  }
+
   async function onDelete(id: string) {
     if (!token) return;
     if (!window.confirm("Delete this transaction? This can't be undone.")) return;
@@ -174,6 +203,24 @@ export default function TransactionsPage() {
           </Link>
         </div>
       </div>
+
+      {company && txns.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={onAutoCategorize}
+            disabled={categorizing}
+            className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50 transition-colors"
+          >
+            {categorizing ? "Categorizing…" : "Auto-categorize"}
+          </button>
+          {notice && (
+            <span className="text-sm text-black/60 dark:text-white/60" role="status">
+              {notice}
+            </span>
+          )}
+        </div>
+      )}
 
       {error && (
         <p className="text-sm text-red-500" role="alert">

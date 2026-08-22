@@ -360,3 +360,19 @@ export function updateTransaction(
 export function deleteTransaction(id: string, token: string): Promise<void> {
   return apiDelete(`/api/v1/transactions/${id}`, token);
 }
+
+export type AutoCategorizeResult = {
+  categorized: number;
+  uncategorized_remaining: number;
+};
+
+export function autoCategorize(
+  companyId: string,
+  token: string,
+): Promise<AutoCategorizeResult> {
+  return apiPost<AutoCategorizeResult>(
+    "/api/v1/transactions/auto-categorize",
+    { company_id: companyId },
+    token,
+  );
+}
