@@ -20,6 +20,7 @@ from app.core.database import Base
 from app.auth import models as _auth_models  # noqa: F401
 from app.companies import models as _company_models  # noqa: F401
 from app.transactions import models as _transaction_models  # noqa: F401
+from app.financial_engine import models as _financial_models  # noqa: F401
 
 config = context.config
 

@@ -13,11 +13,11 @@ backend/
     auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
     companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
-    financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, service, schemas, router (FR-3.x, FR-4.x)
+    financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
-  migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions)
+  migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots)
   tests/                 # pytest smoke + feature tests
   alembic.ini
   requirements.txt
@@ -217,6 +217,32 @@ curl "localhost:8000/api/v1/financial/summary?company_id=$COMPANY_ID" \
   -H "Authorization: Bearer $TOKEN"
 curl "localhost:8000/api/v1/financial/cash-flow?company_id=$COMPANY_ID&start_date=2026-01-01" \
   -H "Authorization: Bearer $TOKEN"
+```
+
+## Financial engine — KPI snapshots (Phase 4.3)
+
+Precomputed, **stored** KPIs per company per period (FR-4.1–4.5) — the
+`kpi_snapshots` table the AI CFO reads from and never derives itself
+(architecture §4.1). Metric math is pure/unit-tested in `calculations.compute_kpis`;
+`service.generate_kpi_snapshot` is the only writer. **No LLM.**
+
+Definitions (locked in): `burn_rate = (expenses − revenue) / months` (positive =
+burning); `runway_months = cash_on_hand / burn_rate` with cash-on-hand = cumulative
+net cash flow through `period_end` (opening ₹0), **null** when not burning or out
+of cash; `gross_margin_pct == operating_margin_pct = (revenue − expenses)/revenue×100`
+(COGS out of MVP scope, SRS §7 → same figure), null at zero revenue;
+`revenue_growth_pct` vs. the immediately preceding equal-length window, null with
+no baseline. numeric(6,2) ratios clamp to ±9999.99.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/financial/kpi-snapshots` | Body `{company_id, period_start, period_end}`; computes + stores a snapshot → the full KPI row. `422` if `period_start > period_end`, `404` not your company. |
+| `GET /api/v1/financial/kpi-snapshots?company_id=` | A company's stored snapshots, most recent period first. |
+
+```bash
+curl -X POST localhost:8000/api/v1/financial/kpi-snapshots \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"company_id":"'"$COMPANY_ID"'","period_start":"2026-01-01","period_end":"2026-01-31"}'
 ```
 
 ## Notes

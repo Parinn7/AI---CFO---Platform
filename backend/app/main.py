@@ -29,6 +29,7 @@ from app.core.database import check_connection, dispose_engine
 import app.auth.models  # noqa: F401,E402
 import app.companies.models  # noqa: F401,E402
 import app.transactions.models  # noqa: F401,E402
+import app.financial_engine.models  # noqa: F401,E402
 
 
 @asynccontextmanager

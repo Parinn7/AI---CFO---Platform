@@ -66,8 +66,11 @@ which deterministically fills in categories for uncategorized rows.
 
 `lib/api.ts` exposes `getFinancialSummary` (revenue/expense totals + net,
 FR-3.2) and `getCashFlow` (per-month inflow/outflow/net, FR-3.3), both taking an
-optional `startDate`/`endDate` range. These back the Phase 5 dashboard; the
-numbers are computed deterministically by the backend (no LLM).
+optional `startDate`/`endDate` range, plus `generateKpiSnapshot`/`listKpiSnapshots`
+(burn rate, runway, gross/operating margin, revenue growth — FR-4.1–4.5). These
+back the Phase 5 dashboard; the numbers are computed deterministically by the
+backend (no LLM). Runway/margin/growth fields can be `null` in their undefined
+cases (not burning cash / zero revenue / no prior period).
 
 ## Company profile (Phase 2.3)
 

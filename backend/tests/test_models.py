@@ -8,6 +8,7 @@ from app.core.database import Base
 from app.auth import models as _auth  # noqa: F401
 from app.companies import models as _companies  # noqa: F401
 from app.transactions import models as _transactions  # noqa: F401
+from app.financial_engine import models as _financial  # noqa: F401
 
 
 def test_expected_tables_registered():
@@ -17,6 +18,7 @@ def test_expected_tables_registered():
         "categories",
         "upload_batches",
         "transactions",
+        "kpi_snapshots",
     }
 
 

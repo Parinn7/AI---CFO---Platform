@@ -438,3 +438,39 @@ export function getCashFlow(
     token,
   );
 }
+
+// --- KPI snapshots: burn rate, runway, margins, revenue growth (4.3, FR-4.x) ---
+
+export type KpiSnapshot = {
+  id: string;
+  company_id: string;
+  period_start: string;
+  period_end: string;
+  total_revenue: string;
+  total_expenses: string;
+  net_cash_flow: string;
+  burn_rate: string;
+  // null in their undefined cases: not burning cash / zero revenue / no prior period.
+  runway_months: string | null;
+  gross_margin_pct: string | null;
+  operating_margin_pct: string | null;
+  revenue_growth_pct: string | null;
+  created_at: string;
+};
+
+export function generateKpiSnapshot(
+  input: { company_id: string; period_start: string; period_end: string },
+  token: string,
+): Promise<KpiSnapshot> {
+  return apiPost<KpiSnapshot>("/api/v1/financial/kpi-snapshots", input, token);
+}
+
+export function listKpiSnapshots(
+  companyId: string,
+  token: string,
+): Promise<KpiSnapshot[]> {
+  return apiGet<KpiSnapshot[]>(
+    `/api/v1/financial/kpi-snapshots?company_id=${companyId}`,
+    token,
+  );
+}

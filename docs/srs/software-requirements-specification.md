@@ -111,6 +111,11 @@ The platform supports two equally first-class data input paths — neither is a 
 | FR-4.5 | The system shall calculate Revenue Growth (period-over-period) |
 | FR-4.6 | The system shall display profitability trends over time on the dashboard |
 
+**Implementation decisions (locked in during Phase 4 build):**
+
+- **Runway cash-on-hand (FR-4.2):** since the schema has no stored cash-balance field, cash-on-hand is derived as cumulative net cash flow — the sum of all income minus all expenses across every transaction up to the period end, with an assumed ₹0 opening balance. Known limitation: an early-stage company with more cumulative spend than income will show negative/zero cash, making runway undefined by design (displayed as N/A, not a negative number). Runway is also undefined when burn rate ≤ 0 (i.e., the company isn't burning cash).
+- **Gross Margin vs. Operating Margin (FR-4.3, FR-4.4):** since the category set has no COGS/opex distinction (§7, deferred to future scope), both metrics use the identical formula — `(revenue − total expenses) / revenue × 100` — and will report the same number. This is a deliberate simplification given current category granularity, not a bug. Revisiting this requires first adding a COGS/opex split to the category taxonomy.
+
 ### 3.5 Scenario Simulation
 
 | ID | Requirement |

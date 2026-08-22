@@ -18,10 +18,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.financial_engine.calculations import (
     MonthlyCashFlow,
     Totals,
+    compute_kpis,
     compute_monthly_cash_flow,
     compute_totals,
+    months_in_period,
 )
 from app.financial_engine.categorization import guess_category
+from app.financial_engine.models import KpiSnapshot
 from app.transactions.models import Transaction
 from app.transactions.service import list_categories
 
@@ -106,3 +109,83 @@ async def company_cash_flow(
     (FR-3.3). Deterministic — no LLM."""
     rows = await _load_rows(db, company_id, start_date, end_date)
     return compute_monthly_cash_flow(rows)
+
+
+# --- KPI snapshots (task 4.3, FR-4.1–4.5) ---
+
+
+def _previous_window(
+    period_start: dt.date, period_end: dt.date
+) -> tuple[dt.date, dt.date]:
+    """The equal-length window immediately preceding [period_start, period_end],
+    used as the revenue-growth baseline. A 31-day January window → the 31 days
+    ending the day before it (2 Dec–31 Dec... i.e. Dec 1–Dec 31 for a full Jan)."""
+    length = (period_end - period_start).days + 1
+    prev_end = period_start - dt.timedelta(days=1)
+    prev_start = prev_end - dt.timedelta(days=length - 1)
+    return prev_start, prev_end
+
+
+async def generate_kpi_snapshot(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    period_start: dt.date,
+    period_end: dt.date,
+) -> KpiSnapshot:
+    """Compute and persist a KPI snapshot for a company over the given period
+    (FR-4.1–4.5). All figures are deterministic (architecture §4.1); this is the
+    only writer of `kpi_snapshots`, which the AI CFO later reads from.
+
+    Cash-on-hand for runway is the cumulative net cash flow through `period_end`
+    (opening cash ₹0). Revenue growth compares against the immediately preceding
+    equal-length window."""
+    period_totals = compute_totals(
+        await _load_rows(db, company_id, period_start, period_end)
+    )
+
+    # Cumulative cash position as of period_end (all transactions up to then).
+    cumulative = compute_totals(await _load_rows(db, company_id, None, period_end))
+    cash_on_hand = cumulative.total_income - cumulative.total_expenses
+
+    prev_start, prev_end = _previous_window(period_start, period_end)
+    prev_totals = compute_totals(
+        await _load_rows(db, company_id, prev_start, prev_end)
+    )
+
+    kpis = compute_kpis(
+        total_revenue=period_totals.total_income,
+        total_expenses=period_totals.total_expenses,
+        num_months=months_in_period(period_start, period_end),
+        cash_on_hand=cash_on_hand,
+        prev_revenue=prev_totals.total_income,
+    )
+
+    snapshot = KpiSnapshot(
+        company_id=company_id,
+        period_start=period_start,
+        period_end=period_end,
+        total_revenue=kpis.total_revenue,
+        total_expenses=kpis.total_expenses,
+        net_cash_flow=kpis.net_cash_flow,
+        burn_rate=kpis.burn_rate,
+        runway_months=kpis.runway_months,
+        gross_margin_pct=kpis.gross_margin_pct,
+        operating_margin_pct=kpis.operating_margin_pct,
+        revenue_growth_pct=kpis.revenue_growth_pct,
+    )
+    db.add(snapshot)
+    await db.commit()
+    await db.refresh(snapshot)
+    return snapshot
+
+
+async def list_kpi_snapshots(
+    db: AsyncSession, company_id: uuid.UUID
+) -> list[KpiSnapshot]:
+    """A company's stored KPI snapshots, most recent period first."""
+    result = await db.execute(
+        select(KpiSnapshot)
+        .where(KpiSnapshot.company_id == company_id)
+        .order_by(KpiSnapshot.period_end.desc(), KpiSnapshot.created_at.desc())
+    )
+    return list(result.scalars().all())

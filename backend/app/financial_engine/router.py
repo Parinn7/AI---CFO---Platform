@@ -27,6 +27,8 @@ from app.financial_engine import service
 from app.financial_engine.schemas import (
     CashFlowResponse,
     FinancialSummary,
+    KpiSnapshotCreate,
+    KpiSnapshotRead,
     MonthlyCashFlowRead,
 )
 
@@ -100,3 +102,35 @@ async def cash_flow(
             for m in months
         ],
     )
+
+
+@router.post(
+    "/kpi-snapshots",
+    response_model=KpiSnapshotRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_kpi_snapshot(
+    payload: KpiSnapshotCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> KpiSnapshotRead:
+    """Compute and store a KPI snapshot for a company over a period (FR-4.1–4.5):
+    burn rate, runway, gross/operating margin, revenue growth. Deterministic —
+    the AI CFO only ever reads these, never computes them (architecture §4.1)."""
+    await _require_company(payload.company_id, current_user, db)
+    snapshot = await service.generate_kpi_snapshot(
+        db, payload.company_id, payload.period_start, payload.period_end
+    )
+    return KpiSnapshotRead.model_validate(snapshot)
+
+
+@router.get("/kpi-snapshots", response_model=list[KpiSnapshotRead])
+async def list_kpi_snapshots(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[KpiSnapshotRead]:
+    """List a company's stored KPI snapshots, most recent period first."""
+    await _require_company(company_id, current_user, db)
+    snapshots = await service.list_kpi_snapshots(db, company_id)
+    return [KpiSnapshotRead.model_validate(s) for s in snapshots]

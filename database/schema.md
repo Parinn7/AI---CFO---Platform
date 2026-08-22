@@ -96,10 +96,12 @@ Precomputed KPI values, stored per company per period. This is the table the AI 
 | net_cash_flow | numeric(14,2) | |
 | burn_rate | numeric(14,2) | |
 | runway_months | numeric(6,2) | nullable if burn rate ≤ 0 (i.e. profitable) |
-| gross_margin_pct | numeric(6,2) | |
-| operating_margin_pct | numeric(6,2) | |
-| revenue_growth_pct | numeric(6,2) | period-over-period |
-| computed_at | timestamptz | |
+| gross_margin_pct | numeric(6,2) | nullable if revenue = 0 (margin undefined) |
+| operating_margin_pct | numeric(6,2) | nullable if revenue = 0; **== gross_margin_pct** — COGS is out of MVP scope (SRS §7), so both hold the same operating figure |
+| revenue_growth_pct | numeric(6,2) | period-over-period; nullable if no prior-period revenue to compare against |
+| computed_at | timestamptz | stored as the `created_at` timestamp mixin |
+
+**Implementation note (task 4.3):** created by Alembic migration `0004`, composite index on `(company_id, period_start, period_end)`. Written only by `financial_engine.service.generate_kpi_snapshot` — all figures deterministic, the AI never derives them. Definitions (locked in): `burn_rate = (expenses − revenue) / months in period` (positive = burning); `runway_months = cash_on_hand / burn_rate` where `cash_on_hand` is cumulative net cash flow through `period_end` (opening cash ₹0), **null** when not burning (burn ≤ 0) or out of cash (≤ 0); margins as above; `revenue_growth_pct` vs. the immediately preceding equal-length window. `runway`/margins/growth values are clamped to numeric(6,2)'s ±9999.99 range. Margin/growth nullability is a deliberate widening of this table's original spec (which marked only `runway_months` nullable) — storing NULL for an undefined ratio beats a bogus 0.
 
 ## 7. `scenarios`
 

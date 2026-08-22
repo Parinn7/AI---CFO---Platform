@@ -6,7 +6,7 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class AutoCategorizeRequest(BaseModel):
@@ -57,3 +57,41 @@ class CashFlowResponse(BaseModel):
     start_date: dt.date | None
     end_date: dt.date | None
     months: list[MonthlyCashFlowRead]
+
+
+# --- KPI snapshots (task 4.3, FR-4.1–4.5) ---
+
+
+class KpiSnapshotCreate(BaseModel):
+    """Request to compute + store a KPI snapshot for a company over a period."""
+
+    company_id: uuid.UUID
+    period_start: dt.date
+    period_end: dt.date
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "KpiSnapshotCreate":
+        if self.period_start > self.period_end:
+            raise ValueError("period_start must not be after period_end.")
+        return self
+
+
+class KpiSnapshotRead(BaseModel):
+    """A stored KPI snapshot (schema.md §6). Runway/margins/growth are null in
+    their undefined cases (not burning cash, zero revenue, no prior period)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    company_id: uuid.UUID
+    period_start: dt.date
+    period_end: dt.date
+    total_revenue: Decimal
+    total_expenses: Decimal
+    net_cash_flow: Decimal
+    burn_rate: Decimal
+    runway_months: Decimal | None
+    gross_margin_pct: Decimal | None
+    operating_margin_pct: Decimal | None
+    revenue_growth_pct: Decimal | None
+    created_at: dt.datetime
