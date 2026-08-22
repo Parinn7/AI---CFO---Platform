@@ -33,7 +33,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **3.3** Guided manual data entry flow — plain-language, question-based (not a blank form), covering sales, purchases, salaries, rent, marketing spend, operational costs, bank transactions (FR-2.3).
 - [x] **3.4** Upload/entry validation — missing dates, non-numeric amounts, duplicates (FR-2.4).
 - [x] **3.5** Edit/delete previously entered data (FR-2.5).
-- [ ] **3.6** Confirm manually-entered data flows into KPIs/dashboard/reports identically to uploaded data — no separate "conversion" step (FR-2.6).
+- [x] **3.6** Confirm manually-entered data flows into KPIs/dashboard/reports identically to uploaded data — no separate "conversion" step (FR-2.6). *(Data-layer equivalence verified now; downstream KPI/report output re-confirmed in Phase 4/5 and task 9.5.)*
 
 ## Phase 4 — Financial Engine
 - [ ] **4.1** Auto-categorization logic (FR-3.1).

@@ -19,7 +19,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** Phase 3 **in progress** — 3.1–3.5 done: categories seeded, CSV/XLSX upload, guided manual entry, validation + dedupe, and edit/delete of transactions all working end-to-end (schema at migration `0003`; 3.5 needed no migration). Next: 3.6 (confirm manual == upload into KPIs — mostly verification, blocked on the financial engine, Phase 4).
+**Phase:** Phase 3 **COMPLETE** (3.1–3.6 done) — categories seeded, CSV/XLSX upload, guided manual entry, validation + dedupe, edit/delete, and manual==upload equivalence all done and working end-to-end (schema at migration `0003`). Next: Phase 4 (Financial Engine) — starting with 4.1 (auto-categorization).
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
@@ -30,6 +30,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 - ✅ **Supabase connected** — Session pooler (ap-southeast-1), `DATABASE_URL` in `backend/.env` (gitignored). Health endpoint reports `database: "connected"`.
 - ✅ **Auth (2.2)** — Backend: `app/auth/` split into `security.py` (bcrypt hashing + PyJWT encode/decode), `service.py`, `schemas.py`, `dependencies.py` (`get_current_user` Bearer guard), `router.py`. Endpoints `POST /auth/signup` (201, auto-login, 409 on dup), `POST /auth/login` (401 on bad creds), `GET /auth/me` (Bearer). Verified end-to-end against live Supabase. Frontend: `AuthContext` (JWT in localStorage + `/auth/me` rehydrate), shared `AuthForm`, `/login` + `/signup` + auth-guarded `/dashboard`, `AuthNav` on the landing page.
 - ✅ **Company profiles (2.3)** — Backend: `app/companies/` (`schemas.py`/`service.py`/`router.py`) mirroring the auth split. Endpoints `POST/GET /companies`, `GET/PATCH /companies/{id}`, all Bearer-guarded and scoped by `owner_user_id` (cross-user access → 404, existence not leaked). `currency` server-fixed to INR. Frontend: `/company` page + shared `CompanyForm` (create-or-edit), linked from the dashboard; INR shown read-only, fiscal-month as a month select.
+- ✅ **Manual == upload (3.6)** — FR-2.6 verified at the data layer: both paths write the same `transactions` table (only `source`/`upload_batch_id` differ), no read path branches on `source`, so source-agnostic aggregation counts them identically — manual entries never need "converting". Locked in by `tests/test_source_equivalence.py` (manual ₹5k + upload ₹7k income + ₹2k expense → income 12k / expense 2k across one feed; rows structurally identical bar provenance). Downstream KPI/report output re-confirmed in Phase 4/5 + task 9.5. No code/migration changed — verification + docs only.
 - ✅ **Edit/delete (3.5)** — No migration. Backend: `PATCH /transactions/{id}` (partial edit; changing category does NOT recompute `type` per schema §4; validates category is usable → 400) + `DELETE /transactions/{id}` (204), both owner-scoped via transaction→company→owner join (404 otherwise). `TransactionUpdate` schema; `get_transaction_for_user`/`update_transaction`/`delete_transaction` in service. Frontend: `/transactions` page — full list with **inline edit** (date/description/category/type/amount) + **delete** (confirm), linked from dashboard + `/data`; `apiDelete` + `updateTransaction`/`deleteTransaction`. **84 backend tests pass** (8 new incl. category-change-keeps-type, cross-user 404). Verified live: patch 200 → bad amount 422 → delete 204 → gone from list → re-delete 404.
 - ✅ **Validation + dedupe (3.4)** — No migration. Missing-date/non-numeric already handled (uploads skip+report; manual via Pydantic). Added **duplicate detection** on both paths: signature `(date, amount, type, description)` per company (category excluded so re-imports match). Uploads seed the seen-set from existing rows → re-upload/within-file repeats skipped and listed in `error_log` (parser now carries `source_row` for "Row N" messages). Manual `POST /transactions` now returns `{created, skipped_duplicates}` (dupes skipped, not double-entered), surfaced in `/data/manual`. **76 backend tests pass** (4 new: 2 upload + 2 manual dedupe). Verified live: re-upload same CSV → row_count 0 + per-row dup messages; manual re-submit → skipped.
 - ✅ **Manual entry (3.3)** — Guided plain-language flow (FR-2.3), no migration (reuses `transactions`, `source="manual"`). Backend: `GET /categories?company_id=` (defaults + company's), `POST /transactions` (batch manual create; type from category, explicit override e.g. Other-as-income; amount `>0`; 400 bad category / 404 not-owner), `GET /transactions?company_id=` (upload+manual, newest first) — all owner-scoped. Frontend: `/data/manual` asks one question per category ("How much did you spend on rent?") for a single date, "money in/out" hint per row (toggle on Other), submits filled answers as a batch; linked from `/data`. Manual entries land identically to uploads → feed KPIs with no conversion (FR-2.6, confirmed in 3.6). **72 backend tests pass** (9 new). Verified live on Supabase.
@@ -46,9 +47,10 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **3.6** — Confirm manual data flows into KPIs/dashboard/reports identically to uploads, no conversion step (FR-2.6). Largely already true by design (same `transactions` table, only `source` differs; both paths verified live). This is the explicit verification task and is best done **once the financial engine (Phase 4) exists** — likely a quick confirmation + a note, possibly checked off alongside 4.2/4.3. Could also be marked now with a design-level justification. Recommend a brief pause to decide, or proceed into Phase 4.
+1. **4.1** — Auto-categorization (FR-3.1): deterministic, rule-based (no AI — architecture §4.1). Build `app/financial_engine/` categorization (keyword → category, type-aware) and apply it to uncategorized transactions; wire it into the upload path for rows without a category, plus an explicit "auto-categorize" endpoint/button for existing data.
+2. **4.2** — Revenue/expense totals + monthly cash flow (FR-3.2, FR-3.3), the first real Financial Engine math (deterministic).
 
-Phase 2 done; Phase 3 (data input) nearly done (3.1–3.5 done; only 3.6 verification left). Order follows the dependency chain — nothing downstream works without data + the financial engine first.
+Phase 3 (data input) complete. Phase 4 (Financial Engine) next — deterministic math only, AI never calculates (SRS FR-6.6 / architecture §4.1).
 
 ---
 
@@ -62,6 +64,11 @@ Phase 2 done; Phase 3 (data input) nearly done (3.1–3.5 done; only 3.6 verific
 ---
 
 ## Log
+
+### 2026-08-22 — Phase 3.6 DONE: manual == upload equivalence (FR-2.6) — Phase 3 complete
+- **Verification task, no code/migration.** Decided (per the flag raised at end of 3.5) to complete 3.6 now rather than defer: the substance of FR-2.6 — "no conversion step" + identical aggregation — is verifiable at the data layer today, and the KPI/dashboard/report *output* equivalence follows because no read path branches on `source` (re-confirmed as those layers land; reports have their own check in 9.5).
+- **Added `tests/test_source_equivalence.py`:** creates a manual revenue entry + an uploaded income/expense file for one company, then asserts the single `GET /transactions` feed contains both sources, that a source-agnostic sum-by-type counts them identically (income 12000 = 5000 manual + 7000 upload; expense 2000), and that the manual vs uploaded income rows are structurally identical apart from provenance fields.
+- **Docs:** architecture §3 gained an explicit FR-2.6 "manual == upload, no conversion" note. `tasks.md` 3.6 → [x] (with a scope caveat). 85 backend tests pass.
 
 ### 2026-08-21 — Phase 3.5 DONE: edit/delete transactions (FR-2.5), end-to-end
 - **No migration.** Backend: `TransactionUpdate` schema (all fields optional, amount `>0`); service `get_transaction_for_user` (transaction→company→owner join), `update_transaction` (partial via `model_dump(exclude_unset=True)`; a supplied `category_id` must be usable → `ManualEntryError`/400; **changing category does NOT recompute `type`** — only an explicit `type` changes it, honoring schema §4's stability rule), `delete_transaction`. Router: `PATCH /transactions/{id}` → `TransactionRead`, `DELETE /transactions/{id}` → 204; both 404 if not the caller's.
