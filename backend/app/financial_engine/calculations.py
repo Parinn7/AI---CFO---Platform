@@ -11,6 +11,9 @@ paise (2 dp).
   (FR-3.2; caller decides the period by filtering which rows it passes in).
 * `compute_monthly_cash_flow` → per-calendar-month inflow / outflow / net,
   ordered oldest→newest (FR-3.3).
+* `compute_kpis` → burn rate / runway / margins / revenue growth (task 4.3).
+* `monthly_history` → a continuous, gap-filled N-month performance series for
+  the historical/12-month view (task 4.4, FR-3.5 / FR-4.6).
 """
 
 from __future__ import annotations
@@ -209,3 +212,68 @@ def compute_kpis(
         operating_margin_pct=margin,
         revenue_growth_pct=growth,
     )
+
+
+# --- Historical performance / 12-month view (task 4.4, FR-3.5 / FR-4.6) ---
+#
+# Unlike compute_monthly_cash_flow (which only emits months that have data), the
+# history view emits a *continuous* run of months — gaps are filled with zeros —
+# so the dashboard can plot an unbroken trend line and "the last 12 months"
+# always means twelve rows. Each month carries a profitability figure
+# (margin_pct) matching the KPI definition (net / revenue × 100).
+
+
+@dataclass(frozen=True)
+class MonthlyPerformance:
+    month: str  # "YYYY-MM"
+    revenue: Decimal
+    expenses: Decimal
+    net_cash_flow: Decimal
+    margin_pct: Decimal | None  # None when revenue is 0 (undefined)
+
+
+def month_range(
+    end_year: int, end_month: int, count: int
+) -> list[tuple[int, int]]:
+    """The `count` consecutive `(year, month)` pairs ending at
+    `(end_year, end_month)`, oldest first. Handles year rollover."""
+    months: list[tuple[int, int]] = []
+    year, month = end_year, end_month
+    for _ in range(max(count, 1)):
+        months.append((year, month))
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    return list(reversed(months))
+
+
+def monthly_history(
+    rows: Iterable[Row],
+    end_year: int,
+    end_month: int,
+    num_months: int = 12,
+) -> list[MonthlyPerformance]:
+    """A continuous `num_months`-long monthly performance series ending at
+    `(end_year, end_month)`, oldest first (FR-3.5). Months without transactions
+    appear as zero rows so the trend is unbroken."""
+    by_month = {m.month: m for m in compute_monthly_cash_flow(rows)}
+
+    series: list[MonthlyPerformance] = []
+    for year, month in month_range(end_year, end_month, num_months):
+        key = f"{year:04d}-{month:02d}"
+        cf = by_month.get(key)
+        revenue = cf.inflow if cf else ZERO
+        expenses = cf.outflow if cf else ZERO
+        net = cf.net if cf else ZERO
+        margin = _ratio(net * 100, revenue) if revenue > 0 else None
+        series.append(
+            MonthlyPerformance(
+                month=key,
+                revenue=_q(revenue),
+                expenses=_q(expenses),
+                net_cash_flow=_q(net),
+                margin_pct=margin,
+            )
+        )
+    return series

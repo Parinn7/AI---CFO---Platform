@@ -219,6 +219,24 @@ curl "localhost:8000/api/v1/financial/cash-flow?company_id=$COMPANY_ID&start_dat
   -H "Authorization: Bearer $TOKEN"
 ```
 
+## Financial engine — historical / 12-month view (Phase 4.4)
+
+A continuous month-by-month performance series (FR-3.5) for trend charts
+(FR-4.6) — **no LLM**. `calculations.monthly_history` zero-fills empty months so
+the series is unbroken and always `months` rows long; each month has revenue,
+expenses, net, and `margin_pct` (net/revenue×100, null at zero revenue). By
+default it anchors to the **latest month with data** ("last 12 months of
+available data"); pass `end_month` to anchor explicitly.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/financial/history?company_id=[&months=1..60&end_month=YYYY-MM]` | Continuous monthly series, oldest→newest → `{num_months, end_month, months:[{month, revenue, expenses, net_cash_flow, margin_pct}]}`. Bad `end_month` → `400`, `months` out of 1..60 → `422`, not your company → `404`. |
+
+```bash
+curl "localhost:8000/api/v1/financial/history?company_id=$COMPANY_ID&months=12" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ## Financial engine — KPI snapshots (Phase 4.3)
 
 Precomputed, **stored** KPIs per company per period (FR-4.1–4.5) — the

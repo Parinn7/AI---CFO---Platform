@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -27,9 +27,11 @@ from app.financial_engine import service
 from app.financial_engine.schemas import (
     CashFlowResponse,
     FinancialSummary,
+    HistoryResponse,
     KpiSnapshotCreate,
     KpiSnapshotRead,
     MonthlyCashFlowRead,
+    MonthlyPerformanceRead,
 )
 
 router = APIRouter(prefix="/financial", tags=["financial"])
@@ -51,6 +53,23 @@ def _check_range(start_date: dt.date | None, end_date: dt.date | None) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="start_date must not be after end_date.",
         )
+
+
+def _parse_end_month(end_month: str | None) -> tuple[int, int] | None:
+    """Parse an optional `YYYY-MM` history anchor → (year, month), or 400."""
+    if end_month is None:
+        return None
+    try:
+        year_str, month_str = end_month.split("-")
+        year, month = int(year_str), int(month_str)
+        if len(year_str) != 4 or not 1 <= month <= 12:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="end_month must be in YYYY-MM format.",
+        )
+    return year, month
 
 
 @router.get("/summary", response_model=FinancialSummary)
@@ -100,6 +119,40 @@ async def cash_flow(
                 month=m.month, inflow=m.inflow, outflow=m.outflow, net=m.net
             )
             for m in months
+        ],
+    )
+
+
+@router.get("/history", response_model=HistoryResponse)
+async def financial_history(
+    company_id: uuid.UUID,
+    months: int = Query(12, ge=1, le=60),
+    end_month: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HistoryResponse:
+    """Continuous month-by-month performance for the last `months` (default 12,
+    FR-3.5) — revenue, expenses, net, and profitability margin per month, with
+    empty months zero-filled so the trend is unbroken (FR-4.6). Anchors to the
+    latest month with data unless `end_month` (YYYY-MM) is given."""
+    await _require_company(company_id, current_user, db)
+    anchor = _parse_end_month(end_month)
+    series, (end_year, end_mo) = await service.company_history(
+        db, company_id, months, anchor
+    )
+    return HistoryResponse(
+        company_id=company_id,
+        num_months=months,
+        end_month=f"{end_year:04d}-{end_mo:02d}",
+        months=[
+            MonthlyPerformanceRead(
+                month=m.month,
+                revenue=m.revenue,
+                expenses=m.expenses,
+                net_cash_flow=m.net_cash_flow,
+                margin_pct=m.margin_pct,
+            )
+            for m in series
         ],
     )
 

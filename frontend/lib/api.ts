@@ -439,6 +439,38 @@ export function getCashFlow(
   );
 }
 
+// --- Historical performance / 12-month view (4.4, FR-3.5/FR-4.6) ---
+
+export type MonthlyPerformance = {
+  month: string; // "YYYY-MM"
+  revenue: string;
+  expenses: string;
+  net_cash_flow: string;
+  margin_pct: string | null; // null when revenue is 0
+};
+
+export type HistoryResponse = {
+  company_id: string;
+  num_months: number;
+  end_month: string; // "YYYY-MM"
+  months: MonthlyPerformance[];
+};
+
+export function getHistory(
+  companyId: string,
+  token: string,
+  months?: number,
+  endMonth?: string,
+): Promise<HistoryResponse> {
+  const params = new URLSearchParams({ company_id: companyId });
+  if (months) params.set("months", String(months));
+  if (endMonth) params.set("end_month", endMonth);
+  return apiGet<HistoryResponse>(
+    `/api/v1/financial/history?${params.toString()}`,
+    token,
+  );
+}
+
 // --- KPI snapshots: burn rate, runway, margins, revenue growth (4.3, FR-4.x) ---
 
 export type KpiSnapshot = {

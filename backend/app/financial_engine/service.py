@@ -9,18 +9,22 @@ without a category.
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.financial_engine.calculations import (
     MonthlyCashFlow,
+    MonthlyPerformance,
     Totals,
     compute_kpis,
     compute_monthly_cash_flow,
     compute_totals,
+    month_range,
+    monthly_history,
     months_in_period,
 )
 from app.financial_engine.categorization import guess_category
@@ -189,3 +193,51 @@ async def list_kpi_snapshots(
         .order_by(KpiSnapshot.period_end.desc(), KpiSnapshot.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+# --- Historical performance / 12-month view (task 4.4, FR-3.5 / FR-4.6) ---
+
+
+async def _latest_transaction_month(
+    db: AsyncSession, company_id: uuid.UUID
+) -> tuple[int, int] | None:
+    """The (year, month) of the company's most recent transaction, or None."""
+    result = await db.execute(
+        select(func.max(Transaction.date)).where(
+            Transaction.company_id == company_id
+        )
+    )
+    latest = result.scalar_one_or_none()
+    return (latest.year, latest.month) if latest is not None else None
+
+
+async def company_history(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    num_months: int = 12,
+    end_month: tuple[int, int] | None = None,
+) -> tuple[list[MonthlyPerformance], tuple[int, int]]:
+    """A continuous `num_months`-long monthly performance series (FR-3.5),
+    oldest first, with empty months zero-filled. Returns `(series, anchor)`.
+
+    The anchor (last month in the series) defaults to the month of the company's
+    most recent transaction — i.e. the last 12 months *of available data* — and
+    falls back to the current month when there are no transactions yet. Only the
+    window's transactions are loaded, then bucketed deterministically."""
+    if end_month is None:
+        today = dt.date.today()
+        end_month = await _latest_transaction_month(db, company_id) or (
+            today.year,
+            today.month,
+        )
+    end_year, end_mo = end_month
+
+    window = month_range(end_year, end_mo, num_months)
+    start_year, start_mo = window[0]
+    window_start = dt.date(start_year, start_mo, 1)
+    last_day = calendar.monthrange(end_year, end_mo)[1]
+    window_end = dt.date(end_year, end_mo, last_day)
+
+    rows = await _load_rows(db, company_id, window_start, window_end)
+    series = monthly_history(rows, end_year, end_mo, num_months)
+    return series, end_month

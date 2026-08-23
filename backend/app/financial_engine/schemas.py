@@ -59,6 +59,30 @@ class CashFlowResponse(BaseModel):
     months: list[MonthlyCashFlowRead]
 
 
+# --- Historical performance / 12-month view (task 4.4, FR-3.5 / FR-4.6) ---
+
+
+class MonthlyPerformanceRead(BaseModel):
+    """One month in the historical series. `margin_pct` is null when revenue is
+    0 (profitability undefined). Empty months appear as zero rows."""
+
+    month: str  # "YYYY-MM"
+    revenue: Decimal
+    expenses: Decimal
+    net_cash_flow: Decimal
+    margin_pct: Decimal | None
+
+
+class HistoryResponse(BaseModel):
+    """A continuous monthly performance series (FR-3.5), oldest→newest.
+    `end_month` echoes the anchor (last month in the series)."""
+
+    company_id: uuid.UUID
+    num_months: int
+    end_month: str  # "YYYY-MM"
+    months: list[MonthlyPerformanceRead]
+
+
 # --- KPI snapshots (task 4.3, FR-4.1–4.5) ---
 
 
