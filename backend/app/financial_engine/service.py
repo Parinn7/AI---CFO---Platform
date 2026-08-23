@@ -27,6 +27,7 @@ from app.financial_engine.calculations import (
     monthly_history,
     months_in_period,
 )
+from app.financial_engine.anomaly import ExpenseTxn, detect_expense_anomalies
 from app.financial_engine.categorization import guess_category
 from app.financial_engine.models import KpiSnapshot
 from app.transactions.models import Transaction
@@ -241,3 +242,40 @@ async def company_history(
     rows = await _load_rows(db, company_id, window_start, window_end)
     series = monthly_history(rows, end_year, end_mo, num_months)
     return series, end_month
+
+
+# --- Anomaly detection (task 4.5, FR-3.6) ---
+
+
+async def detect_anomalies_for_company(
+    db: AsyncSession, company_id: uuid.UUID
+) -> tuple[int, int]:
+    """Recompute `is_flagged_anomaly` for all of a company's transactions using
+    the deterministic category-month spike rule (FR-3.6). No LLM.
+
+    Returns `(flagged, expenses_scanned)`. This is a full, idempotent recompute:
+    every transaction's flag is set to its correct current value (so edits/deletes
+    that change baselines, or transactions that are no longer anomalous, are
+    cleared), and only expenses can end up flagged."""
+    result = await db.execute(
+        select(Transaction).where(Transaction.company_id == company_id)
+    )
+    transactions = list(result.scalars().all())
+
+    expenses = [t for t in transactions if t.type == "expense"]
+    flagged_ids = detect_expense_anomalies(
+        ExpenseTxn(id=t.id, group=t.category_id, date=t.date, amount=t.amount)
+        for t in expenses
+    )
+
+    changed = False
+    for txn in transactions:
+        should_flag = txn.id in flagged_ids
+        if txn.is_flagged_anomaly != should_flag:
+            txn.is_flagged_anomaly = should_flag
+            changed = True
+
+    if changed:
+        await db.commit()
+
+    return len(flagged_ids), len(expenses)

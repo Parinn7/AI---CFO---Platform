@@ -27,7 +27,12 @@ from app.auth.models import User
 from app.companies.service import get_company_for_user
 from app.core.database import get_db
 from app.financial_engine import service as engine_service
-from app.financial_engine.schemas import AutoCategorizeRequest, AutoCategorizeResult
+from app.financial_engine.schemas import (
+    AnomalyDetectionResult,
+    AnomalyScanRequest,
+    AutoCategorizeRequest,
+    AutoCategorizeResult,
+)
 from app.transactions import service
 from app.transactions.parsing import UploadParseError
 from app.transactions.schemas import (
@@ -180,6 +185,25 @@ async def auto_categorize(
     return AutoCategorizeResult(
         categorized=categorized, uncategorized_remaining=remaining
     )
+
+
+@transactions_router.post(
+    "/detect-anomalies", response_model=AnomalyDetectionResult
+)
+async def detect_anomalies(
+    payload: AnomalyScanRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AnomalyDetectionResult:
+    """Deterministically flag anomalous expenses (FR-3.6): expense categories
+    whose monthly spend spikes above their trailing 3-month average. No LLM —
+    fixed-threshold rules (architecture §4.1). Idempotent full recompute of every
+    transaction's `is_flagged_anomaly`."""
+    await _require_company(payload.company_id, current_user, db)
+    flagged, scanned = await engine_service.detect_anomalies_for_company(
+        db, payload.company_id
+    )
+    return AnomalyDetectionResult(flagged=flagged, expenses_scanned=scanned)
 
 
 async def _require_own_transaction(

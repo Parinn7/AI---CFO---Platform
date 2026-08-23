@@ -13,7 +13,7 @@ backend/
     auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
     companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
-    financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
+    financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, anomaly, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — scenario simulation (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
@@ -184,6 +184,16 @@ no `upload_batch_id`), so they feed KPIs/reports identically (FR-2.6).
 | `PATCH /api/v1/transactions/{id}` | Edit a transaction (FR-2.5); partial. Changing category doesn't recompute `type`. `400` bad category, `404` not yours. |
 | `DELETE /api/v1/transactions/{id}` | Delete a transaction (FR-2.5); `204`, `404` if not yours. |
 | `POST /api/v1/transactions/auto-categorize` | Deterministically categorize uncategorized rows (FR-3.1) → `{categorized, uncategorized_remaining}`. |
+| `POST /api/v1/transactions/detect-anomalies` | Flag anomalous expenses (FR-3.6) → `{flagged, expenses_scanned}`. Idempotent full recompute of `is_flagged_anomaly`. |
+
+**Anomaly detection (Phase 4.5)** lives in `app/financial_engine/anomaly.py`
+(DB-free, **no LLM**): it flags an expense **category whose monthly spend
+exceeds its trailing 3-month average by >50%** (a fixed default threshold, SRS
+§7), marking that month's transactions in that category. A full trailing-3-month
+baseline is required, so new categories aren't false-flagged. The endpoint is an
+idempotent full recompute (clears stale flags when data changes; only expenses
+can be flagged). Surfaced via a "Detect anomalies" button + ⚠ badge on
+`/transactions`, and the `is_flagged_anomaly` flag feeds the dashboard (FR-8.3).
 
 **Auto-categorization (Phase 4.1)** is rule-based and lives in
 `app/financial_engine/categorization.py` (`guess_category` — income → Revenue,

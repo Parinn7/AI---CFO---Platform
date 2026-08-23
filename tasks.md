@@ -41,7 +41,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **4.2** Revenue/expense totals + cash flow calculation (FR-3.2, FR-3.3).
 - [x] **4.3** `kpi_snapshots` generation: burn rate, runway, gross margin, operating margin, revenue growth (FR-4.1–4.6).
 - [x] **4.4** Historical performance tracking, 12-month view (FR-3.5).
-- [ ] **4.5** Anomaly detection against fixed thresholds (FR-3.6).
+- [x] **4.5** Anomaly detection against fixed thresholds (FR-3.6).
 
 ## Phase 5 — Dashboard
 - [ ] **5.1** Overview dashboard: KPI cards, charts, recent activity (FR-8.1).

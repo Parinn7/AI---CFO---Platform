@@ -60,7 +60,9 @@ Manage transactions (FR-2.5): `/transactions` (linked from the dashboard and
 `/data`) lists all transactions and supports inline edit + delete via
 `updateTransaction`/`deleteTransaction` (`PATCH`/`DELETE /transactions/{id}`).
 It also has an **Auto-categorize** button (FR-3.1) calling `autoCategorize`,
-which deterministically fills in categories for uncategorized rows.
+which deterministically fills in categories for uncategorized rows, and a
+**Detect anomalies** button (FR-3.6) calling `detectAnomalies`, which flags
+expense spikes vs. the trailing 3-month average; flagged rows show a ⚠ badge.
 
 ## Financial engine client (Phase 4.2)
 

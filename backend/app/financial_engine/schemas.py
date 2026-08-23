@@ -21,6 +21,19 @@ class AutoCategorizeResult(BaseModel):
     uncategorized_remaining: int
 
 
+class AnomalyScanRequest(BaseModel):
+    company_id: uuid.UUID
+
+
+class AnomalyDetectionResult(BaseModel):
+    """Outcome of an anomaly-detection run (FR-3.6). `flagged` is how many
+    transactions are now marked anomalous; `expenses_scanned` is how many
+    expense transactions were evaluated."""
+
+    flagged: int
+    expenses_scanned: int
+
+
 # --- Revenue/expense totals + cash flow (task 4.2, FR-3.2/FR-3.3) ---
 
 

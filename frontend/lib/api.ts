@@ -377,6 +377,24 @@ export function autoCategorize(
   );
 }
 
+// --- Anomaly detection (4.5, FR-3.6) ---
+
+export type AnomalyDetectionResult = {
+  flagged: number;
+  expenses_scanned: number;
+};
+
+export function detectAnomalies(
+  companyId: string,
+  token: string,
+): Promise<AnomalyDetectionResult> {
+  return apiPost<AnomalyDetectionResult>(
+    "/api/v1/transactions/detect-anomalies",
+    { company_id: companyId },
+    token,
+  );
+}
+
 // --- Financial engine: revenue/expense totals + cash flow (4.2, FR-3.2/3.3) ---
 
 export type FinancialSummary = {

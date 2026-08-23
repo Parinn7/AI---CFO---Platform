@@ -2,6 +2,10 @@
  * Transactions management (Phase 3.5, FR-2.5). Auth-guarded. Lists all of the
  * company's transactions (upload + manual) and lets the user edit any field
  * inline or delete a row. Backed by PATCH/DELETE /transactions/{id}.
+ *
+ * Also exposes the deterministic Financial Engine actions over this data:
+ * Auto-categorize (4.1, FR-3.1) and Detect anomalies (4.5, FR-3.6) — the latter
+ * flags expense spikes vs. the trailing 3-month average and marks those rows.
  */
 
 "use client";
@@ -14,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
   autoCategorize,
+  detectAnomalies,
   deleteTransaction,
   listCategories,
   listCompanies,
@@ -52,6 +57,7 @@ export default function TransactionsPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [categorizing, setCategorizing] = useState(false);
+  const [detecting, setDetecting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,6 +170,29 @@ export default function TransactionsPage() {
     }
   }
 
+  async function onDetectAnomalies() {
+    if (!token || !company) return;
+    setError(null);
+    setNotice(null);
+    setDetecting(true);
+    try {
+      const res = await detectAnomalies(company.id, token);
+      // Refresh so the flagged rows update.
+      setTxns(await listTransactions(company.id, token));
+      setNotice(
+        res.flagged === 0
+          ? `No anomalies found across ${res.expenses_scanned} expense${res.expenses_scanned === 1 ? "" : "s"}.`
+          : `Flagged ${res.flagged} anomalous expense${res.flagged === 1 ? "" : "s"} (spikes vs. the trailing 3-month average).`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Couldn't detect anomalies.",
+      );
+    } finally {
+      setDetecting(false);
+    }
+  }
+
   async function onDelete(id: string) {
     if (!token) return;
     if (!window.confirm("Delete this transaction? This can't be undone.")) return;
@@ -213,6 +242,14 @@ export default function TransactionsPage() {
             className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50 transition-colors"
           >
             {categorizing ? "Categorizing…" : "Auto-categorize"}
+          </button>
+          <button
+            type="button"
+            onClick={onDetectAnomalies}
+            disabled={detecting}
+            className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50 transition-colors"
+          >
+            {detecting ? "Detecting…" : "Detect anomalies"}
           </button>
           {notice && (
             <span className="text-sm text-black/60 dark:text-white/60" role="status">
@@ -362,7 +399,17 @@ export default function TransactionsPage() {
                     ) : (
                       <>
                         <td className="p-3 whitespace-nowrap">{t.date}</td>
-                        <td className="p-3">{t.description ?? "—"}</td>
+                        <td className="p-3">
+                          {t.description ?? "—"}
+                          {t.is_flagged_anomaly && (
+                            <span
+                              title="Unusual spike vs. the trailing 3-month average"
+                              className="ml-2 inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+                            >
+                              ⚠ Anomaly
+                            </span>
+                          )}
+                        </td>
                         <td className="p-3">{categoryName(t.category_id)}</td>
                         <td className="p-3 capitalize">{t.type}</td>
                         <td
