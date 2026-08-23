@@ -44,7 +44,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **4.5** Anomaly detection against fixed thresholds (FR-3.6).
 
 ## Phase 5 — Dashboard
-- [ ] **5.1** Overview dashboard: KPI cards, charts, recent activity (FR-8.1).
+- [x] **5.1** Overview dashboard: KPI cards, charts, recent activity (FR-8.1).
 - [ ] **5.2** Date-range filtering (FR-8.2).
 - [ ] **5.3** Visual anomaly highlighting (FR-8.3).
 

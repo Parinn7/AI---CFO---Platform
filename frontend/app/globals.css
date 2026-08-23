@@ -3,6 +3,17 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Data-viz tokens (dataviz skill reference palette, validated light+dark).
+     Marks wear these; text always uses the ink tokens above. */
+  --viz-surface: #fcfcfb;
+  --viz-grid: #e1e0d9;
+  --viz-baseline: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-series-rev: #2a78d6; /* blue — revenue */
+  --viz-series-exp: #1baf7a; /* aqua — expenses */
+  --viz-pos: #2a78d6; /* net ≥ 0 */
+  --viz-neg: #e34948; /* net < 0 */
 }
 
 @theme inline {
@@ -16,6 +27,15 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --viz-surface: #1a1a19;
+    --viz-grid: #2c2c2a;
+    --viz-baseline: #383835;
+    --viz-muted: #898781;
+    --viz-series-rev: #3987e5;
+    --viz-series-exp: #199e70;
+    --viz-pos: #3987e5;
+    --viz-neg: #e66767;
   }
 }
 

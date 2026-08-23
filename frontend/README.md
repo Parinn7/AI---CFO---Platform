@@ -14,22 +14,23 @@ frontend/
     signup/            # /signup
     forgot-password/   # /forgot-password — request a reset link (FR-1.4)
     reset-password/    # /reset-password — set a new password from a token (FR-1.4)
-    dashboard/         # /dashboard — auth-guarded placeholder (real dashboard: Phase 5)
+    dashboard/         # /dashboard — overview: KPI cards, charts, recent activity (FR-8.1)
     company/           # /company — create/edit company profile (FR-1.3)
     data/              # /data — CSV/XLSX import + imported-transaction view (FR-2.1/2.2)
     data/manual/       # /data/manual — guided plain-language manual entry (FR-2.3)
     transactions/      # /transactions — list + inline edit/delete of transactions (FR-2.5)
     globals.css
-  components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm)
+  components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm,
+                       #   StatCard, DashboardCharts — inline-SVG KPI/trend charts)
   contexts/            # AuthContext — JWT session (localStorage), current user
   hooks/               # per-feature data-fetching hooks (e.g. useHealth)
-  lib/                 # API client (api.ts) — apiGet/apiPost + auth calls
+  lib/                 # API client (api.ts) — apiGet/apiPost + auth calls; format.ts — INR/month
   public/
 ```
 
 Server state is currently plain `fetch` + local state; React Query/SWR can be
-layered in later without changing call sites. Charts (Recharts) arrive with the
-dashboard phase.
+layered in later without changing call sites. Charts are **dependency-free inline
+SVG** (no chart library), theme-aware via `--viz-*` tokens in `globals.css`.
 
 ## Auth (Phase 2.2)
 
@@ -74,6 +75,24 @@ optional `startDate`/`endDate` range, plus `generateKpiSnapshot`/`listKpiSnapsho
 These back the Phase 5 dashboard; the numbers are computed deterministically by the
 backend (no LLM). Runway/margin/growth fields can be `null` in their undefined
 cases (not burning cash / zero revenue / no prior period).
+
+## Overview dashboard (Phase 5.1)
+
+`/dashboard` (auth-guarded) is the first UI consumer of the whole Financial
+Engine (FR-8.1). It shows **KPI cards** (burn rate, runway, gross margin, revenue
+growth — from a `kpi_snapshot`), two **charts** (12-month revenue-vs-expenses
+lines + net-cash-flow diverging bars, FR-4.6), and **recent activity** with
+anomaly badges (FR-3.6 / FR-8.3). All numbers come from the backend; the UI only
+displays them.
+
+- **KPI cards use get-or-create:** on load it reuses a stored snapshot for the
+  latest month of data, generating one only if missing; a "Refresh KPIs" button
+  regenerates (period = the latest data month, from `getHistory`'s `end_month`).
+- **Charts** are dependency-free inline SVG in `components/DashboardCharts.tsx`,
+  theme-aware via the `--viz-*` tokens in `globals.css` (dataviz-skill reference
+  palette, validated light + dark), with a legend + hover tooltip on each.
+  `components/StatCard.tsx` is the KPI tile; `lib/format.ts` has the INR/month
+  formatters.
 
 ## Company profile (Phase 2.3)
 
