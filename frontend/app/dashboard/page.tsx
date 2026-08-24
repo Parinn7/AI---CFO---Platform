@@ -1,12 +1,15 @@
 /**
- * Overview dashboard (Phase 5.1, FR-8.1). Auth-guarded. The first UI consumer of
- * the whole Financial Engine: KPI cards (burn/runway/margins/growth from a
- * kpi_snapshot), a 12-month revenue/expenses + net-cash-flow trend (FR-4.6), and
+ * Overview dashboard (Phase 5.1 / 5.2, FR-8.1 / FR-8.2). Auth-guarded. The first
+ * UI consumer of the whole Financial Engine: KPI cards (burn/runway/margins/growth
+ * from a kpi_snapshot), a revenue/expenses + net-cash-flow trend (FR-4.6), and
  * recent activity with anomaly flags (FR-3.6 / FR-8.3). All numbers are computed
  * deterministically by the backend — the UI only displays them.
  *
- * KPI cards use get-or-create: on load it reuses a stored snapshot for the latest
- * month of data, generating one only if missing; "Refresh KPIs" regenerates.
+ * Date-range filtering (5.2, FR-8.2): a period selector (3M / 6M / 12M / All,
+ * default 12M, anchored to the latest month of data) re-scopes the whole view —
+ * the charts, the KPI snapshot period, and the period totals all follow it. KPI
+ * cards use get-or-create: reuse a stored snapshot for the selected period,
+ * generating one only if missing; "Refresh KPIs" regenerates it.
  */
 
 "use client";
@@ -21,7 +24,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
   generateKpiSnapshot,
-  getFinancialSummary,
   getHistory,
   listCategories,
   listCompanies,
@@ -33,9 +35,29 @@ import {
   type KpiSnapshot,
   type Transaction,
 } from "@/lib/api";
-import { formatINR, lastDayOfMonth, monthLong } from "@/lib/format";
+import { addMonths, formatINR, lastDayOfMonth, monthLong, monthSpan } from "@/lib/format";
 
 const RECENT_LIMIT = 8;
+const RANGES: [RangeId, string][] = [
+  ["3", "3M"],
+  ["6", "6M"],
+  ["12", "12M"],
+  ["all", "All"],
+];
+
+type RangeId = "3" | "6" | "12" | "all";
+
+function monthsForRange(
+  rangeId: RangeId,
+  endMonth: string,
+  earliestMonth: string | null,
+): number {
+  if (rangeId === "all") {
+    const span = earliestMonth ? monthSpan(earliestMonth, endMonth) : 12;
+    return Math.min(60, Math.max(1, span));
+  }
+  return Number(rangeId);
+}
 
 export default function DashboardPage() {
   const { user, token, loading: authLoading, logout } = useAuth();
@@ -46,14 +68,37 @@ export default function DashboardPage() {
   const [snapshot, setSnapshot] = useState<KpiSnapshot | null>(null);
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [endMonth, setEndMonth] = useState<string | null>(null);
+  const [earliestMonth, setEarliestMonth] = useState<string | null>(null);
+  const [rangeId, setRangeId] = useState<RangeId>("12");
   const [hasData, setHasData] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false); // range switch in flight
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
+
+  // Get-or-create the KPI snapshot for the [months back → endMonth] window.
+  const snapshotForRange = useCallback(
+    async (companyId: string, end: string, months: number, force: boolean) => {
+      const periodStart = `${addMonths(end, -(months - 1))}-01`;
+      const periodEnd = lastDayOfMonth(end);
+      if (!force) {
+        const existing = (await listKpiSnapshots(companyId, token!)).find(
+          (s) => s.period_start === periodStart && s.period_end === periodEnd,
+        );
+        if (existing) return existing;
+      }
+      return generateKpiSnapshot(
+        { company_id: companyId, period_start: periodStart, period_end: periodEnd },
+        token!,
+      );
+    },
+    [token],
+  );
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -67,31 +112,25 @@ export default function DashboardPage() {
         return;
       }
 
-      const [summary, hist, cats, allTxns] = await Promise.all([
-        getFinancialSummary(co.id, token),
+      const [hist, cats, allTxns] = await Promise.all([
         getHistory(co.id, token, 12),
         listCategories(co.id, token),
         listTransactions(co.id, token),
       ]);
-      const dataPresent = summary.income_count + summary.expense_count > 0;
-      setHistory(hist);
       setCategories(cats);
-      setTxns(allTxns.slice(0, RECENT_LIMIT));
-      setHasData(dataPresent);
+      setTxns(allTxns);
+      const present = allTxns.length > 0;
+      setHasData(present);
 
-      if (dataPresent) {
-        const periodStart = `${hist.end_month}-01`;
-        const periodEnd = lastDayOfMonth(hist.end_month);
-        const existing = (await listKpiSnapshots(co.id, token)).find(
-          (s) => s.period_start === periodStart && s.period_end === periodEnd,
-        );
-        setSnapshot(
-          existing ??
-            (await generateKpiSnapshot(
-              { company_id: co.id, period_start: periodStart, period_end: periodEnd },
-              token,
-            )),
-        );
+      if (present) {
+        const em = hist.end_month;
+        // listTransactions is newest-first, so the last row is the earliest.
+        const earliest = allTxns[allTxns.length - 1].date.slice(0, 7);
+        setEndMonth(em);
+        setEarliestMonth(earliest);
+        setRangeId("12");
+        setHistory(hist); // default 12-month window (already fetched)
+        setSnapshot(await snapshotForRange(co.id, em, 12, false));
       } else {
         setSnapshot(null);
       }
@@ -100,7 +139,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, snapshotForRange]);
 
   useEffect(() => {
     // Fetch-on-mount; load() only setState()s after awaited requests.
@@ -108,19 +147,33 @@ export default function DashboardPage() {
     if (token) load();
   }, [token, load]);
 
+  async function applyRange(next: RangeId) {
+    if (!token || !company || !endMonth || next === rangeId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const months = monthsForRange(next, endMonth, earliestMonth);
+      const [hist, snap] = await Promise.all([
+        getHistory(company.id, token, months, endMonth),
+        snapshotForRange(company.id, endMonth, months, false),
+      ]);
+      setHistory(hist);
+      setSnapshot(snap);
+      setRangeId(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't change the period.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onRefresh() {
-    if (!token || !company || !history || !hasData) return;
+    if (!token || !company || !endMonth) return;
     setRefreshing(true);
     setError(null);
     try {
-      const periodStart = `${history.end_month}-01`;
-      const periodEnd = lastDayOfMonth(history.end_month);
-      setSnapshot(
-        await generateKpiSnapshot(
-          { company_id: company.id, period_start: periodStart, period_end: periodEnd },
-          token,
-        ),
-      );
+      const months = monthsForRange(rangeId, endMonth, earliestMonth);
+      setSnapshot(await snapshotForRange(company.id, endMonth, months, true));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't refresh KPIs.");
     } finally {
@@ -139,6 +192,11 @@ export default function DashboardPage() {
     );
   }
 
+  const spanStart = history?.months[0]?.month;
+  const spanEnd = history?.months[history.months.length - 1]?.month;
+  const spanLabel = spanStart && spanEnd ? `${monthLong(spanStart)} – ${monthLong(spanEnd)}` : "";
+  const rangeLabel = rangeId === "all" ? "All time" : `Last ${rangeId} months`;
+
   return (
     <main className="flex-1 w-full max-w-6xl mx-auto flex flex-col gap-8 p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -147,7 +205,7 @@ export default function DashboardPage() {
           {company && (
             <p className="mt-1 text-sm text-black/60 dark:text-white/60">
               {company.name}
-              {hasData && history ? ` · through ${monthLong(history.end_month)}` : ""}
+              {hasData && endMonth ? ` · through ${monthLong(endMonth)}` : ""}
             </p>
           )}
         </div>
@@ -186,12 +244,44 @@ export default function DashboardPage() {
         />
       ) : (
         <>
+          {/* Date-range filter (FR-8.2) */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-black/50 dark:text-white/50">Period</span>
+            <div className="inline-flex rounded-md border border-black/15 dark:border-white/20 overflow-hidden">
+              {RANGES.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => applyRange(id)}
+                  disabled={busy}
+                  aria-pressed={id === rangeId}
+                  className={`px-3 py-1.5 text-sm font-medium disabled:opacity-50 transition-colors ${
+                    id === rangeId
+                      ? "bg-foreground text-background"
+                      : "hover:bg-black/5 dark:hover:bg-white/10"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {busy && <span className="text-xs text-black/40 dark:text-white/40">Updating…</span>}
+          </div>
+
           {/* KPI cards */}
           <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-black/60 dark:text-white/60">
-                Key metrics{history ? ` — ${monthLong(history.end_month)}` : ""}
-              </h2>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-medium text-black/70 dark:text-white/70">
+                  Key metrics · {rangeLabel}
+                </h2>
+                {snapshot && (
+                  <p className="mt-0.5 text-xs text-black/50 dark:text-white/50">
+                    {spanLabel} · Revenue {formatINR(snapshot.total_revenue)} · Expenses{" "}
+                    {formatINR(snapshot.total_expenses)} · Net {formatINR(snapshot.net_cash_flow)}
+                  </p>
+                )}
+              </div>
               <button type="button" onClick={onRefresh} disabled={refreshing}
                 className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50 transition-colors">
                 {refreshing ? "Refreshing…" : "Refresh KPIs"}
@@ -204,12 +294,12 @@ export default function DashboardPage() {
           <section className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-xl border border-black/10 dark:border-white/15 p-4">
               <h3 className="mb-1 text-sm font-medium">Revenue vs. expenses</h3>
-              <p className="mb-3 text-xs text-black/50 dark:text-white/50">Last 12 months</p>
+              <p className="mb-3 text-xs text-black/50 dark:text-white/50">{spanLabel}</p>
               {history && <RevenueExpenseChart months={history.months} />}
             </div>
             <div className="rounded-xl border border-black/10 dark:border-white/15 p-4">
               <h3 className="mb-1 text-sm font-medium">Net cash flow</h3>
-              <p className="mb-3 text-xs text-black/50 dark:text-white/50">Last 12 months</p>
+              <p className="mb-3 text-xs text-black/50 dark:text-white/50">{spanLabel}</p>
               {history && <NetCashFlowChart months={history.months} />}
             </div>
           </section>
@@ -233,7 +323,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {txns.map((t) => (
+                  {txns.slice(0, RECENT_LIMIT).map((t) => (
                     <tr key={t.id} className="border-b border-black/5 dark:border-white/5 last:border-0">
                       <td className="p-3 whitespace-nowrap">{t.date}</td>
                       <td className="p-3">
@@ -293,7 +383,7 @@ function KpiCards({ snap }: { snap: KpiSnapshot }) {
       <StatCard
         label="Revenue growth"
         value={growth === null ? "—" : `${Number(growth) >= 0 ? "+" : ""}${Number(growth).toFixed(1)}%`}
-        hint="Vs. the previous month"
+        hint="Vs. the preceding period"
         accent={growth === null ? "none" : Number(growth) >= 0 ? "good" : "bad"}
       />
     </div>

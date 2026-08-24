@@ -45,7 +45,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 
 ## Phase 5 — Dashboard
 - [x] **5.1** Overview dashboard: KPI cards, charts, recent activity (FR-8.1).
-- [ ] **5.2** Date-range filtering (FR-8.2).
+- [x] **5.2** Date-range filtering (FR-8.2).
 - [ ] **5.3** Visual anomaly highlighting (FR-8.3).
 
 ## Phase 6 — Scenario Simulator

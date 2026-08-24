@@ -76,23 +76,27 @@ These back the Phase 5 dashboard; the numbers are computed deterministically by 
 backend (no LLM). Runway/margin/growth fields can be `null` in their undefined
 cases (not burning cash / zero revenue / no prior period).
 
-## Overview dashboard (Phase 5.1)
+## Overview dashboard (Phase 5.1 / 5.2)
 
 `/dashboard` (auth-guarded) is the first UI consumer of the whole Financial
 Engine (FR-8.1). It shows **KPI cards** (burn rate, runway, gross margin, revenue
-growth — from a `kpi_snapshot`), two **charts** (12-month revenue-vs-expenses
-lines + net-cash-flow diverging bars, FR-4.6), and **recent activity** with
-anomaly badges (FR-3.6 / FR-8.3). All numbers come from the backend; the UI only
+growth — from a `kpi_snapshot`), two **charts** (revenue-vs-expenses lines +
+net-cash-flow diverging bars, FR-4.6), and **recent activity** with anomaly
+badges (FR-3.6 / FR-8.3). All numbers come from the backend; the UI only
 displays them.
 
-- **KPI cards use get-or-create:** on load it reuses a stored snapshot for the
-  latest month of data, generating one only if missing; a "Refresh KPIs" button
-  regenerates (period = the latest data month, from `getHistory`'s `end_month`).
+- **Date-range filtering (5.2, FR-8.2):** a period selector (**3M / 6M / 12M /
+  All**, default 12M, anchored to the latest month of data) re-scopes the whole
+  view — the charts, the KPI snapshot period, and the period-totals line all
+  follow it (`All` spans earliest→latest data month, capped at 60). Switching
+  re-queries `getHistory` + the snapshot for the new window.
+- **KPI cards use get-or-create:** reuse a stored snapshot for the selected
+  period, generating one only if missing; "Refresh KPIs" force-regenerates.
 - **Charts** are dependency-free inline SVG in `components/DashboardCharts.tsx`,
   theme-aware via the `--viz-*` tokens in `globals.css` (dataviz-skill reference
   palette, validated light + dark), with a legend + hover tooltip on each.
   `components/StatCard.tsx` is the KPI tile; `lib/format.ts` has the INR/month
-  formatters.
+  formatters (incl. `addMonths`/`monthSpan` for the range windows).
 
 ## Company profile (Phase 2.3)
 

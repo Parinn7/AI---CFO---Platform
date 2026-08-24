@@ -49,3 +49,19 @@ export function lastDayOfMonth(ym: string): string {
   const day = new Date(y, m, 0).getDate();
   return `${ym}-${String(day).padStart(2, "0")}`;
 }
+
+/** Shift a "YYYY-MM" by `delta` months (delta may be negative). */
+export function addMonths(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const idx = y * 12 + (m - 1) + delta;
+  const ny = Math.floor(idx / 12);
+  const nm = (idx % 12) + 1;
+  return `${String(ny).padStart(4, "0")}-${String(nm).padStart(2, "0")}`;
+}
+
+/** Inclusive count of months from "YYYY-MM" `a` to `b` (b ≥ a). */
+export function monthSpan(a: string, b: string): number {
+  const [ay, am] = a.split("-").map(Number);
+  const [by, bm] = b.split("-").map(Number);
+  return (by - ay) * 12 + (bm - am) + 1;
+}
