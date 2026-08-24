@@ -76,14 +76,19 @@ These back the Phase 5 dashboard; the numbers are computed deterministically by 
 backend (no LLM). Runway/margin/growth fields can be `null` in their undefined
 cases (not burning cash / zero revenue / no prior period).
 
-## Overview dashboard (Phase 5.1 / 5.2)
+## Overview dashboard (Phase 5.1 / 5.2 / 5.3)
 
 `/dashboard` (auth-guarded) is the first UI consumer of the whole Financial
 Engine (FR-8.1). It shows **KPI cards** (burn rate, runway, gross margin, revenue
 growth — from a `kpi_snapshot`), two **charts** (revenue-vs-expenses lines +
-net-cash-flow diverging bars, FR-4.6), and **recent activity** with anomaly
-badges (FR-3.6 / FR-8.3). All numbers come from the backend; the UI only
-displays them.
+net-cash-flow diverging bars, FR-4.6), and **recent activity**. All numbers come
+from the backend; the UI only displays them.
+
+- **Anomaly highlighting (5.3, FR-8.3):** anomaly detection is re-run on load
+  (idempotent), then flagged expenses are surfaced three ways — an **attention
+  callout** with the count for the viewed period, **amber markers** on the
+  anomalous months in both charts (dot under the axis + a legend key + a bar
+  ring + a tooltip note), and the **⚠ badge** on flagged rows in recent activity.
 
 - **Date-range filtering (5.2, FR-8.2):** a period selector (**3M / 6M / 12M /
   All**, default 12M, anchored to the latest month of data) re-scopes the whole

@@ -14,6 +14,7 @@
   --viz-series-exp: #1baf7a; /* aqua — expenses */
   --viz-pos: #2a78d6; /* net ≥ 0 */
   --viz-neg: #e34948; /* net < 0 */
+  --viz-warn: #d97706; /* anomaly marker (amber) */
 }
 
 @theme inline {
@@ -36,6 +37,7 @@
     --viz-series-exp: #199e70;
     --viz-pos: #3987e5;
     --viz-neg: #e66767;
+    --viz-warn: #f59e0b;
   }
 }
 

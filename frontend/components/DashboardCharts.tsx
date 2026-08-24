@@ -3,6 +3,10 @@
  * theme-aware via the --viz-* tokens in globals.css (dataviz skill palette,
  * validated light + dark). Marks wear the series colors; all text uses ink
  * tokens. Both charts carry a legend and a hover tooltip.
+ *
+ * Anomaly highlighting (5.3, FR-8.3): pass `anomalyMonths` (a set of "YYYY-MM")
+ * to mark months that contain a flagged expense — an amber dot under the axis
+ * label (+ a legend key and a tooltip note), and an amber ring on the net bar.
  */
 
 "use client";
@@ -13,8 +17,8 @@ import type { MonthlyPerformance } from "@/lib/api";
 import { formatCompactINR, formatINR, monthLong, monthShort } from "@/lib/format";
 
 const VB_W = 760;
-const VB_H = 280;
-const PAD = { top: 20, right: 60, bottom: 30, left: 54 };
+const VB_H = 284;
+const PAD = { top: 20, right: 60, bottom: 34, left: 54 };
 const PLOT_W = VB_W - PAD.left - PAD.right;
 const PLOT_H = VB_H - PAD.top - PAD.bottom;
 const X0 = PAD.left;
@@ -40,7 +44,13 @@ function EmptyChart({ label }: { label: string }) {
 
 // --- Revenue vs Expenses (two lines) ---
 
-export function RevenueExpenseChart({ months }: { months: MonthlyPerformance[] }) {
+export function RevenueExpenseChart({
+  months,
+  anomalyMonths,
+}: {
+  months: MonthlyPerformance[];
+  anomalyMonths?: Set<string>;
+}) {
   const [hover, setHover] = useState<number | null>(null);
 
   const rev = months.map((m) => Number(m.revenue));
@@ -62,11 +72,15 @@ export function RevenueExpenseChart({ months }: { months: MonthlyPerformance[] }
     monthLong(months[hover].month),
     `Revenue ${formatINR(rev[hover])}`,
     `Expenses ${formatINR(exp[hover])}`,
+    ...(anomalyMonths?.has(months[hover].month) ? ["⚠ Anomaly flagged this month"] : []),
   ]);
 
   return (
     <figure className="viz">
-      <Legend items={[["var(--viz-series-rev)", "Revenue"], ["var(--viz-series-exp)", "Expenses"]]} />
+      <Legend items={legendWithAnomaly([
+        ["var(--viz-series-rev)", "Revenue"],
+        ["var(--viz-series-exp)", "Expenses"],
+      ], anomalyMonths)} />
       <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="w-full h-auto" role="img"
         aria-label="Monthly revenue and expenses">
         {ticks.map((t, i) => (
@@ -79,9 +93,12 @@ export function RevenueExpenseChart({ months }: { months: MonthlyPerformance[] }
           </g>
         ))}
         {months.map((m, i) => (
-          <text key={i} x={x(i)} y={Y_BASE + 16} textAnchor="middle" fontSize={10} fill="var(--viz-muted)">
-            {monthShort(m.month)}
-          </text>
+          <g key={i}>
+            <text x={x(i)} y={Y_BASE + 16} textAnchor="middle" fontSize={10} fill="var(--viz-muted)">
+              {monthShort(m.month)}
+            </text>
+            {anomalyMonths?.has(m.month) && <AnomalyDot x={x(i)} month={m.month} />}
+          </g>
         ))}
 
         <path d={path(rev)} fill="none" stroke="var(--viz-series-rev)" strokeWidth={2}
@@ -112,7 +129,13 @@ export function RevenueExpenseChart({ months }: { months: MonthlyPerformance[] }
 
 // --- Net cash flow (diverging bars around zero) ---
 
-export function NetCashFlowChart({ months }: { months: MonthlyPerformance[] }) {
+export function NetCashFlowChart({
+  months,
+  anomalyMonths,
+}: {
+  months: MonthlyPerformance[];
+  anomalyMonths?: Set<string>;
+}) {
   const [hover, setHover] = useState<number | null>(null);
 
   const net = months.map((m) => Number(m.net_cash_flow));
@@ -133,11 +156,15 @@ export function NetCashFlowChart({ months }: { months: MonthlyPerformance[] }) {
   const tip = hover === null ? null : buildTip(cx(hover), [
     monthLong(months[hover].month),
     `Net ${formatINR(net[hover])}`,
+    ...(anomalyMonths?.has(months[hover].month) ? ["⚠ Anomaly flagged this month"] : []),
   ]);
 
   return (
     <figure className="viz">
-      <Legend items={[["var(--viz-pos)", "Net positive"], ["var(--viz-neg)", "Net negative"]]} />
+      <Legend items={legendWithAnomaly([
+        ["var(--viz-pos)", "Net positive"],
+        ["var(--viz-neg)", "Net negative"],
+      ], anomalyMonths)} />
       <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="w-full h-auto" role="img"
         aria-label="Monthly net cash flow">
         {ticks.map((t, i) => (
@@ -157,15 +184,21 @@ export function NetCashFlowChart({ months }: { months: MonthlyPerformance[] }) {
           const top = positive ? yv : yZero;
           const h = Math.abs(yv - yZero);
           const color = positive ? "var(--viz-pos)" : "var(--viz-neg)";
+          const flagged = anomalyMonths?.has(months[i].month);
           return (
             <g key={i} onMouseEnter={() => setHover(i)} onMouseMove={() => setHover(i)}
               onMouseLeave={() => setHover(null)}>
               <path d={barTopRounded(cx(i) - barW / 2, top, barW, h, positive)} fill={color}
+                stroke={flagged ? "var(--viz-warn)" : "none"} strokeWidth={flagged ? 1.5 : 0}
                 opacity={hover === null || hover === i ? 1 : 0.55} />
               <text x={cx(i)} y={Y_BASE + 16} textAnchor="middle" fontSize={10} fill="var(--viz-muted)">
                 {monthShort(months[i].month)}
               </text>
-              <title>{`${monthLong(months[i].month)}: ${formatINR(v)}`}</title>
+              {flagged && <AnomalyDot x={cx(i)} month={months[i].month} />}
+              <title>
+                {`${monthLong(months[i].month)}: ${formatINR(v)}`}
+                {flagged ? " — anomaly flagged" : ""}
+              </title>
             </g>
           );
         })}
@@ -187,6 +220,26 @@ function Legend({ items }: { items: [string, string][] }) {
         </span>
       ))}
     </figcaption>
+  );
+}
+
+/** Append an "Anomaly" key to the legend when any month is flagged (FR-8.3). */
+function legendWithAnomaly(
+  base: [string, string][],
+  anomalyMonths?: Set<string>,
+): [string, string][] {
+  return anomalyMonths && anomalyMonths.size > 0
+    ? [...base, ["var(--viz-warn)", "Anomaly"]]
+    : base;
+}
+
+/** Amber marker under a month with a flagged expense (FR-8.3). */
+function AnomalyDot({ x, month }: { x: number; month: string }) {
+  return (
+    <circle cx={x} cy={Y_BASE + 24} r={3} fill="var(--viz-warn)"
+      stroke="var(--viz-surface)" strokeWidth={1}>
+      <title>{`${monthLong(month)}: anomalous expense flagged`}</title>
+    </circle>
   );
 }
 

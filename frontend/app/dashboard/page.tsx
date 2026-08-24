@@ -1,15 +1,20 @@
 /**
- * Overview dashboard (Phase 5.1 / 5.2, FR-8.1 / FR-8.2). Auth-guarded. The first
+ * Overview dashboard (Phase 5.1 / 5.2 / 5.3, FR-8.1–8.3). Auth-guarded. The first
  * UI consumer of the whole Financial Engine: KPI cards (burn/runway/margins/growth
  * from a kpi_snapshot), a revenue/expenses + net-cash-flow trend (FR-4.6), and
- * recent activity with anomaly flags (FR-3.6 / FR-8.3). All numbers are computed
- * deterministically by the backend — the UI only displays them.
+ * recent activity. All numbers are computed deterministically by the backend —
+ * the UI only displays them.
  *
  * Date-range filtering (5.2, FR-8.2): a period selector (3M / 6M / 12M / All,
  * default 12M, anchored to the latest month of data) re-scopes the whole view —
  * the charts, the KPI snapshot period, and the period totals all follow it. KPI
  * cards use get-or-create: reuse a stored snapshot for the selected period,
  * generating one only if missing; "Refresh KPIs" regenerates it.
+ *
+ * Anomaly highlighting (5.3, FR-8.3): detection is re-run on load (idempotent),
+ * then flagged expenses are surfaced three ways — an attention callout with the
+ * count for the viewed period, amber markers on the anomalous months in both
+ * charts, and the ⚠ badge on flagged rows in recent activity.
  */
 
 "use client";
@@ -23,6 +28,7 @@ import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
+  detectAnomalies,
   generateKpiSnapshot,
   getHistory,
   listCategories,
@@ -112,6 +118,14 @@ export default function DashboardPage() {
         return;
       }
 
+      // Refresh anomaly flags before loading transactions so highlighting is
+      // current (FR-8.3). Idempotent full recompute; non-fatal if it hiccups.
+      try {
+        await detectAnomalies(co.id, token);
+      } catch {
+        /* keep existing flags */
+      }
+
       const [hist, cats, allTxns] = await Promise.all([
         getHistory(co.id, token, 12),
         listCategories(co.id, token),
@@ -197,6 +211,13 @@ export default function DashboardPage() {
   const spanLabel = spanStart && spanEnd ? `${monthLong(spanStart)} – ${monthLong(spanEnd)}` : "";
   const rangeLabel = rangeId === "all" ? "All time" : `Last ${rangeId} months`;
 
+  // Flagged expenses within the currently-viewed window (FR-8.3).
+  const windowMonths = new Set((history?.months ?? []).map((m) => m.month));
+  const flaggedInWindow = txns.filter(
+    (t) => t.is_flagged_anomaly && windowMonths.has(t.date.slice(0, 7)),
+  );
+  const anomalyMonths = new Set(flaggedInWindow.map((t) => t.date.slice(0, 7)));
+
   return (
     <main className="flex-1 w-full max-w-6xl mx-auto flex flex-col gap-8 p-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -268,6 +289,22 @@ export default function DashboardPage() {
             {busy && <span className="text-xs text-black/40 dark:text-white/40">Updating…</span>}
           </div>
 
+          {/* Anomaly attention callout (FR-8.3) */}
+          {flaggedInWindow.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300/60 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3">
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                <span aria-hidden>⚠ </span>
+                {flaggedInWindow.length} anomalous expense
+                {flaggedInWindow.length === 1 ? "" : "s"} flagged in this period —
+                unusual spikes vs. the trailing 3-month average.
+              </p>
+              <Link href="/transactions"
+                className="text-sm font-medium underline hover:no-underline text-amber-800 dark:text-amber-300">
+                Review
+              </Link>
+            </div>
+          )}
+
           {/* KPI cards */}
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -295,12 +332,12 @@ export default function DashboardPage() {
             <div className="rounded-xl border border-black/10 dark:border-white/15 p-4">
               <h3 className="mb-1 text-sm font-medium">Revenue vs. expenses</h3>
               <p className="mb-3 text-xs text-black/50 dark:text-white/50">{spanLabel}</p>
-              {history && <RevenueExpenseChart months={history.months} />}
+              {history && <RevenueExpenseChart months={history.months} anomalyMonths={anomalyMonths} />}
             </div>
             <div className="rounded-xl border border-black/10 dark:border-white/15 p-4">
               <h3 className="mb-1 text-sm font-medium">Net cash flow</h3>
               <p className="mb-3 text-xs text-black/50 dark:text-white/50">{spanLabel}</p>
-              {history && <NetCashFlowChart months={history.months} />}
+              {history && <NetCashFlowChart months={history.months} anomalyMonths={anomalyMonths} />}
             </div>
           </section>
 
