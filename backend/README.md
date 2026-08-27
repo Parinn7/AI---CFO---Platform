@@ -14,7 +14,7 @@ backend/
     companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
     financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, anomaly, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
-    scenarios/           # Phase 6 — scenario simulation (FR-5.x)
+    scenarios/           # Phase 6 — deterministic scenario simulation: simulation, service, schemas, router (FR-5.x)
     ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
   migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots)
@@ -24,8 +24,8 @@ backend/
   .env.example
 ```
 
-The domain modules beyond `core` are currently package placeholders — they gain
-routers/models/services in their respective phases.
+The remaining domain modules (`ai_cfo`, `reports`) are package placeholders —
+they gain routers/models/services in their respective phases.
 
 ## Setup
 
@@ -271,6 +271,60 @@ no baseline. numeric(6,2) ratios clamp to ±9999.99.
 curl -X POST localhost:8000/api/v1/financial/kpi-snapshots \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"company_id":"'"$COMPANY_ID"'","period_start":"2026-01-01","period_end":"2026-01-31"}'
+```
+
+## Scenario simulator (Phase 6.2)
+
+Answers "what if?" against a company's real figures (FR-5.2) — **deterministic
+Python, no LLM** (architecture §4.1), and **stateless**: it computes and returns,
+persisting nothing (architecture §5.2). Saving a scenario is 6.4's job.
+
+It **reuses the Financial Engine** rather than reimplementing it: aggregation
+comes from `financial_engine.service.company_totals`, and *both* sides of the
+comparison are derived by `calculations.compute_kpis`, so a simulated runway is
+produced by exactly the code that produces a real one. A regression test pins
+this — the returned `baseline` block equals the `kpi_snapshot` stored for the
+same company + period, field for field.
+
+`simulation.py` is pure/DB-free (like `calculations.py`) and holds the four
+FR-5.1 levers. Its field names and bounds mirror `frontend/lib/scenarios.ts`, so
+client- and server-side validation agree and the object can be persisted verbatim
+as `scenarios.assumptions` in 6.4 (schema §7).
+
+**Modelling decisions (locked in):**
+
+- **A scenario restates the period.** Assumptions are applied as if they had held
+  for the whole window, so hiring costs `new_hires × salary × months`. Both sides
+  then share one period and one set of KPI definitions.
+- **Pricing and revenue compose multiplicatively:** `revenue × (1 + pricing%) ×
+  (1 + revenue%)`. Revenue is price × volume and the pricing lever holds volume
+  constant, so the revenue lever is the volume/other lever — +10% price and +20%
+  business is 1.32×, not 1.30×.
+- **Cash on hand is never restated** (decided with the user). The scenario changes
+  the burn rate, not the money in the bank, so runway answers "I have this much
+  cash; if I hire five people, how long does it last?". Restating cash as well is
+  more internally consistent but collapses runway to N/A (out of cash) in most
+  realistic scenarios, making one of the four KPIs FR-5.2 names useless.
+- **Growth compares against the real prior window** on both sides — a scenario
+  doesn't rewrite history.
+- **Only categorised Marketing spend moves.** The marketing lever scales what the
+  period actually booked to the Marketing category; uncategorised spend can't be
+  identified, so it stays put. The `applied` block echoes the base it used.
+- An **all-zero scenario is accepted**, returning identical before/after figures —
+  a truthful answer rather than an error.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/scenarios/simulate` | Body `{company_id, period_start, period_end, assumptions}` → `{baseline, scenario, deltas, applied}`. **200, not 201** — nothing is created. `422` on an out-of-range lever or reversed period, `404` not your company. |
+
+A delta is `null` whenever either side is undefined: a runway that exists only
+after the change has no meaningful difference.
+
+```bash
+curl -X POST localhost:8000/api/v1/scenarios/simulate \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"company_id":"'"$COMPANY_ID"'","period_start":"2025-09-01","period_end":"2026-08-31",
+       "assumptions":{"new_hires":5,"avg_salary_per_hire":"90000","marketing_change_pct":"50"}}'
 ```
 
 ## Notes

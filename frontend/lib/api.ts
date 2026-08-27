@@ -524,3 +524,74 @@ export function listKpiSnapshots(
     token,
   );
 }
+
+// --- Scenario simulator (6.2, FR-5.2/FR-5.3) ---
+
+/** The scenario levers. Mirrors `lib/scenarios.ts`'s `ScenarioAssumptions` and
+ * the backend's `ScenarioAssumptionsIn` — all three agree on names + bounds. */
+export type ScenarioAssumptionsPayload = {
+  new_hires: number;
+  avg_salary_per_hire: number;
+  marketing_change_pct: number;
+  pricing_change_pct: number;
+  revenue_change_pct: number;
+};
+
+/** One side of the before/after — the same KPI set a snapshot holds. */
+export type ScenarioKpis = {
+  total_revenue: string;
+  total_expenses: string;
+  net_cash_flow: string;
+  burn_rate: string;
+  runway_months: string | null;
+  gross_margin_pct: string | null;
+  operating_margin_pct: string | null;
+  revenue_growth_pct: string | null;
+};
+
+/** scenario − baseline per metric; null when either side is undefined. */
+export type ScenarioDeltas = ScenarioKpis;
+
+/** What the levers actually did, in rupees, so the comparison can explain
+ * itself. `marketing_baseline` is the categorised Marketing spend the
+ * percentage was applied to; `revenue_multiplier` is the combined
+ * pricing × revenue factor. */
+export type AppliedChanges = {
+  num_months: number;
+  added_payroll: string;
+  marketing_baseline: string;
+  marketing_change: string;
+  revenue_multiplier: string;
+  revenue_change: string;
+};
+
+export type ScenarioSimulation = {
+  company_id: string;
+  period_start: string;
+  period_end: string;
+  num_months: number;
+  assumptions: ScenarioAssumptionsPayload;
+  baseline: ScenarioKpis;
+  scenario: ScenarioKpis;
+  deltas: ScenarioDeltas;
+  applied: AppliedChanges;
+};
+
+/**
+ * Recalculate cash flow, runway, profitability and growth under a hypothetical
+ * (FR-5.2), returned alongside the real figures for the same period.
+ *
+ * Stateless — the backend persists nothing (architecture §5.2); saving is 6.4.
+ * All the math is deterministic backend code, never an LLM (architecture §4.1).
+ */
+export function simulateScenario(
+  input: {
+    company_id: string;
+    period_start: string;
+    period_end: string;
+    assumptions: ScenarioAssumptionsPayload;
+  },
+  token: string,
+): Promise<ScenarioSimulation> {
+  return apiPost<ScenarioSimulation>("/api/v1/scenarios/simulate", input, token);
+}

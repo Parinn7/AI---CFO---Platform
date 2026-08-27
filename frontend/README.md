@@ -129,6 +129,11 @@ persistence to the `scenarios` table (6.4, FR-5.4) build on this draft.
 `components/KpiCards.tsx` holds the four headline KPI tiles, extracted from the
 dashboard so the baseline and 6.3's comparison render from one definition.
 
+`lib/api.ts`'s `simulateScenario` (6.2) posts a draft's assumptions to
+`POST /scenarios/simulate` and gets back `{baseline, scenario, deltas, applied}` —
+the deterministic before/after the 6.3 comparison view will render. The call is
+stateless; nothing is saved.
+
 ## Company profile (Phase 2.3)
 
 `/company` (auth-guarded, linked from the dashboard) manages the user's company

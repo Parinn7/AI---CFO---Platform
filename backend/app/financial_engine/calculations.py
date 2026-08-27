@@ -37,9 +37,14 @@ _RATIO_MIN = Decimal("-9999.99")
 Row = tuple[dt.date, Decimal, str]
 
 
-def _q(value: Decimal) -> Decimal:
+def quantize_money(value: Decimal) -> Decimal:
     """Quantize to 2 dp (paise), matching the DB's numeric(14,2)."""
     return Decimal(value).quantize(_CENTS)
+
+
+# Shorthand used throughout this module; `quantize_money` is the name other
+# modules (e.g. the scenario simulator) should import.
+_q = quantize_money
 
 
 @dataclass(frozen=True)

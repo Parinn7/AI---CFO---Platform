@@ -119,7 +119,7 @@ async def company_cash_flow(
 # --- KPI snapshots (task 4.3, FR-4.1–4.5) ---
 
 
-def _previous_window(
+def previous_window(
     period_start: dt.date, period_end: dt.date
 ) -> tuple[dt.date, dt.date]:
     """The equal-length window immediately preceding [period_start, period_end],
@@ -152,7 +152,7 @@ async def generate_kpi_snapshot(
     cumulative = compute_totals(await _load_rows(db, company_id, None, period_end))
     cash_on_hand = cumulative.total_income - cumulative.total_expenses
 
-    prev_start, prev_end = _previous_window(period_start, period_end)
+    prev_start, prev_end = previous_window(period_start, period_end)
     prev_totals = compute_totals(
         await _load_rows(db, company_id, prev_start, prev_end)
     )

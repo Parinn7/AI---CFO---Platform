@@ -129,14 +129,36 @@ This is a non-negotiable architectural boundary, not a style preference:
 
 **Simulation is stateless; saving is a separate step (decided in 6.1).** Defining
 and running a scenario writes nothing: the input UI (`/scenarios`) collects the
-assumptions, and the engine recomputes against a baseline `kpi_snapshot` and
-returns the comparison. Only an explicit save persists a row to `scenarios`
-(schema §7) — which is why the table and its migration land with save/revisit
-(6.4) rather than with the input form. The `assumptions` jsonb keys are fixed by
-`frontend/lib/scenarios.ts` (`new_hires`, `avg_salary_per_hire`,
-`marketing_change_pct`, `pricing_change_pct`, `revenue_change_pct`); the pricing
-lever assumes volume holds constant, so it is a separate input from the general
-revenue lever.
+assumptions, and `POST /api/v1/scenarios/simulate` returns the comparison
+(**200, not 201** — nothing is created). Only an explicit save persists a row to
+`scenarios` (schema §7) — which is why the table and its migration land with
+save/revisit (6.4) rather than with the input form. The `assumptions` jsonb keys
+are fixed by `frontend/lib/scenarios.ts` and mirrored by the backend schema:
+`new_hires`, `avg_salary_per_hire`, `marketing_change_pct`,
+`pricing_change_pct`, `revenue_change_pct`.
+
+**The simulator reuses the Financial Engine rather than reimplementing it (6.2).**
+Aggregation comes from `financial_engine.service.company_totals`, and *both*
+sides of the comparison are derived by `calculations.compute_kpis` — so a
+simulated runway is produced by exactly the code that produces a real one, and
+the returned `baseline` block is identical to the `kpi_snapshot` stored for the
+same company + period (pinned by a regression test). This is what lets 6.4 store
+a `baseline_kpi_snapshot_id` beside a saved result without the two disagreeing.
+`scenarios/simulation.py` is pure and DB-free, like `financial_engine/calculations.py`.
+
+Modelling decisions locked in with the user during 6.2:
+
+- A scenario **restates the period** — assumptions apply as if they had held
+  throughout, so both sides share one period and one set of KPI definitions.
+- Pricing and revenue **compose multiplicatively** (`× (1+p) × (1+r)`): revenue is
+  price × volume and the pricing lever holds volume constant, which makes the
+  revenue lever the volume/other lever.
+- **Cash on hand is never restated.** The scenario changes the burn rate, not the
+  money in the bank, so runway answers "how long does my actual cash last if I do
+  this?". Restating cash is more internally consistent but collapses runway to
+  N/A (out of cash) in most realistic scenarios.
+- **Growth compares against the real prior window** on both sides — a scenario
+  does not rewrite history.
 
 ### 5.3 AI CFO Chat
 `User asks a question` → `AI CFO Orchestrator pulls current KPIs/context` → `Constructs prompt` → `Calls LLM API` → `Stores + returns response`
