@@ -127,6 +127,17 @@ This is a non-negotiable architectural boundary, not a style preference:
 ### 5.2 Scenario Simulation
 `User defines scenario inputs` → `Scenario Simulator reads current baseline from Financial Engine` → `Applies hypothetical changes` → `Returns before/after comparison` → `(optionally) saved to DB`
 
+**Simulation is stateless; saving is a separate step (decided in 6.1).** Defining
+and running a scenario writes nothing: the input UI (`/scenarios`) collects the
+assumptions, and the engine recomputes against a baseline `kpi_snapshot` and
+returns the comparison. Only an explicit save persists a row to `scenarios`
+(schema §7) — which is why the table and its migration land with save/revisit
+(6.4) rather than with the input form. The `assumptions` jsonb keys are fixed by
+`frontend/lib/scenarios.ts` (`new_hires`, `avg_salary_per_hire`,
+`marketing_change_pct`, `pricing_change_pct`, `revenue_change_pct`); the pricing
+lever assumes volume holds constant, so it is a separate input from the general
+revenue lever.
+
 ### 5.3 AI CFO Chat
 `User asks a question` → `AI CFO Orchestrator pulls current KPIs/context` → `Constructs prompt` → `Calls LLM API` → `Stores + returns response`
 

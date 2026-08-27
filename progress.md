@@ -19,10 +19,11 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Current Status
 
-**Phase:** **Phase 5 COMPLETE** — Dashboard done (5.1 overview, 5.2 date-range filtering, 5.3 anomaly highlighting), verified in a real browser (light + dark, multiple ranges, anomaly markers) against Supabase. Next: **Phase 6 (Scenario Simulator)** — 6.1 scenario input UI (FR-5.1).
+**Phase:** **Phase 6 IN PROGRESS** — 6.1 scenario input UI done (`/scenarios`, FR-5.1), verified in a real browser (light + dark) against Supabase. Next: **6.2 simulation engine** (FR-5.2) — deterministic, reusing the Financial Engine.
 
 **What exists:**
 - ✅ Docs: proposal, SRS, `system-architecture.md`, `database/schema.md`
+- ✅ **Scenario input UI (6.1)** — FR-5.1, **frontend-only** (no migration, no new endpoints; consumes the existing history + KPI-snapshot endpoints). `/scenarios` (auth-guarded, linked from the dashboard nav) shows the **baseline** — the same last-12-months `kpi_snapshot` the dashboard uses, get-or-create — then asks the four FR-5.1 levers as **plain-language questions** in the guided style of manual entry (FR-2.3): how many people would you hire, what would each cost per month (₹), and what would you change about **marketing spend / prices / revenue** (%). New `lib/scenarios.ts` owns the shared input model — the `ScenarioAssumptions` shape (keys are exactly what `scenarios.assumptions` will store, schema §7), the field specs driving the form, `validateScenario`, and `describeAssumptions` (reads the scenario back in plain English); it holds **no financial math**. "Review scenario" validates → a `ScenarioDraft`; editing any field invalidates it. Nothing is computed or saved — 6.2 simulates, 6.3 compares, 6.4 persists. `components/KpiCards.tsx` **extracted from the dashboard** so the baseline and 6.3's before/after render from one definition. **Scope decision (asked user):** simulation is stateless and the `scenarios` table + migration `0005` land with **6.4 (save/revisit)**, not with the input form — recorded in architecture §5.2.
 - ✅ **Backend** — FastAPI, domain-module structure (`app/core` + `auth`/`companies`/`transactions`/`financial_engine`/`scenarios`/`ai_cfo`/`reports` placeholders). Boots on `:8000`; `GET /api/v1/health` live; 2 pytest smoke tests pass.
 - ✅ **Frontend** — Next.js 16 (App Router) + React 19 + Tailwind v4 + TypeScript. Boots on `:3000`; landing page renders a live `BackendStatus` panel that fetches backend health. Lint + production build pass.
 - ✅ **Frontend ↔ backend** confirmed: CORS allows `:3000` (preflight 200 + correct allow-origin header); health reachable end-to-end.
@@ -55,10 +56,11 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ## Next Up
 
-1. **6.1** — Scenario input UI (FR-5.1): first Scenario Simulator task. Per `tasks.md`/schema §7, scenarios have `assumptions` (jsonb, e.g. `{"new_hires": 3, "marketing_change_pct": 50}`) + a `baseline_kpi_snapshot_id` + a computed `result` (jsonb). 6.1 is the input form; 6.2 is the deterministic simulation engine (reuse the Financial Engine — no LLM); 6.3 before/after comparison; 6.4 save/revisit. Likely needs a `scenarios` table + migration `0005` (schema §7) — check whether 6.1 (UI) or 6.2 (engine) should introduce it.
-2. **6.2** — Simulation engine, reusing the Financial Engine deterministically (FR-5.2).
+1. **6.2** — Simulation engine, reusing the Financial Engine deterministically (FR-5.2). **Stateless** (decided in 6.1, architecture §5.2): takes the assumptions + a baseline `kpi_snapshot`, recomputes cash flow / runway / profitability / growth in backend Python, returns the comparison — persists nothing. The input contract is already fixed by `frontend/lib/scenarios.ts`: `new_hires`, `avg_salary_per_hire`, `marketing_change_pct`, `pricing_change_pct`, `revenue_change_pct`. Note the pricing lever **assumes volume holds constant**, so it flows straight to revenue and is deliberately separate from the general revenue lever — both apply to the same top line, so decide and document how they compose.
+2. **6.3** — Before/after comparison view (FR-5.3). `components/KpiCards.tsx` is already extracted for this.
+3. **6.4** — Save/revisit past scenarios (FR-5.4). **This is where the `scenarios` table + migration `0005` land** (schema §7).
 
-**Phase 4 (Financial Engine) + Phase 5 (Dashboard) COMPLETE.** Deterministic math only — AI never calculates (SRS FR-6.6 / architecture §4.1). The app is verified in a real browser (light + dark). Next up: Phase 6 (Scenario Simulator).
+**Phase 4 (Financial Engine) + Phase 5 (Dashboard) COMPLETE; Phase 6 started.** Deterministic math only — AI never calculates (SRS FR-6.6 / architecture §4.1). The app is verified in a real browser (light + dark).
 
 ---
 
@@ -72,6 +74,16 @@ This file is the single source of truth for build status. **Claude Code must rea
 ---
 
 ## Log
+
+### 2026-08-27 — Phase 6.1 DONE: scenario input UI (FR-5.1)
+- **Frontend-only** — no migration, no new endpoints. `/scenarios` (auth-guarded, added to the dashboard nav) shows **"Your baseline today"** (the last-12-months `kpi_snapshot`, get-or-create, same window the dashboard defaults to) and then asks the four FR-5.1 levers as **plain-language questions**, matching the guided style of manual entry (FR-2.3) rather than a blank form: hire N people · ₹ cost per hire per month · marketing spend ±% · prices ±% · revenue ±%.
+- **New `lib/scenarios.ts`** — the shared input model, deliberately containing **no financial math**: `ScenarioAssumptions` (its keys are exactly what `scenarios.assumptions` will store, schema §7), the `FIELDS` specs that drive the form, `validateScenario` (non-numeric, out-of-range, whole-number hires, "hiring needs a cost per hire", "change at least one thing"), and `describeAssumptions`, which reads the scenario back in plain English before anything runs. `payrollDelta` (hires × salary) is an echo of what the user typed, not a computed result.
+- **`components/KpiCards.tsx` extracted** from `/dashboard` so the scenario baseline and 6.3's before/after render from one definition of the four headline tiles.
+- **Scope decision (asked the user, per the open question in Next Up):** simulation is **stateless** — the `scenarios` table + migration `0005` land with **6.4 (save/revisit)**, since the table is about *saving*, not about defining or running. Recorded in **architecture §5.2**, along with the fixed `assumptions` keys and the note that the pricing lever assumes volume holds constant (hence separate from the general revenue lever).
+- **Verified in a real browser** (Playwright/Chromium, light + dark, seeded 12 months against Supabase): baseline tiles matched `/dashboard` exactly (+₹3,29,788.75/mo surplus · runway N/A · 39.0% margin), the default name auto-filled ("Scenario — Aug 2026"), empty submit blocked, hires-without-salary and a 5000% marketing figure each produced the right **inline field error**, a valid scenario rendered the plain-English recap, editing a field invalidated the reviewed draft, and the dashboard→scenarios nav link worked. **Zero console errors** in both themes.
+- **Two bugs caught by that browser pass and fixed:** (1) the recap read "Increase marketing spend by **+**50%" and "Lose **+**5% of revenue" — `pct()` forced a sign the verb already carried, so it now renders magnitude only; (2) the **burn-rate tile overflowed its card** and collided with the Runway tile at this page's narrower width — long INR values like `₹3,29,788.75/mo` are one unbreakable token, so `StatCard` gained `min-w-0` + `break-words` (fixes the dashboard at narrow widths too).
+- Frontend typecheck + lint + `next build` clean (14 routes); **157 backend tests still pass** (untouched). Verification user/company/transactions deleted from Supabase; servers stopped.
+- **Docs updated:** `frontend/README.md` (structure + a Scenario simulator section), `designs/diagrams/system-architecture.md` §5.2, `tasks.md` 6.1 → [x].
 
 ### 2026-08-24 — Phase 5.3 DONE: visual anomaly highlighting (FR-8.3) — Phase 5 COMPLETE
 - **Frontend-only** (reuses 4.5's `detectAnomalies` + `is_flagged_anomaly`). `/dashboard` now **re-runs anomaly detection on load** (idempotent, non-fatal on error) so flags are current, then highlights flagged expenses three ways: an **amber attention callout** (count of flagged expenses in the viewed period + "Review" → /transactions), **amber chart markers** (a dot under each anomalous month's axis label in both charts, an "Anomaly" legend key, an amber ring on the anomalous net-cash-flow bar, and a "⚠ Anomaly flagged this month" tooltip line), and the existing **⚠ badge** in the recent-activity table.

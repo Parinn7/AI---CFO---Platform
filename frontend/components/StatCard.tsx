@@ -1,6 +1,10 @@
 /**
  * KPI stat tile (Phase 5.1, FR-8.1). Label · value · optional sub/hint.
  * `accent` tints only the value (good/bad/warn); text otherwise uses ink tokens.
+ *
+ * `min-w-0` + `break-words` keep long INR values ("₹3,29,788.75/mo" is one
+ * unbreakable token) wrapping inside the tile instead of spilling over the next
+ * one when the grid is narrow — as it is on /scenarios.
  */
 
 type Accent = "none" | "good" | "bad" | "warn";
@@ -24,11 +28,13 @@ export function StatCard({
   accent?: Accent;
 }) {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/15 p-4">
+    <div className="min-w-0 rounded-xl border border-black/10 dark:border-white/15 p-4">
       <p className="text-xs uppercase tracking-wide text-black/50 dark:text-white/50">
         {label}
       </p>
-      <p className={`mt-1.5 text-2xl font-semibold ${ACCENT[accent]}`}>{value}</p>
+      <p className={`mt-1.5 break-words text-2xl font-semibold ${ACCENT[accent]}`}>
+        {value}
+      </p>
       {hint && (
         <p className="mt-1 text-xs text-black/50 dark:text-white/50">{hint}</p>
       )}

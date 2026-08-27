@@ -49,7 +49,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **5.3** Visual anomaly highlighting (FR-8.3).
 
 ## Phase 6 — Scenario Simulator
-- [ ] **6.1** Scenario input UI (FR-5.1).
+- [x] **6.1** Scenario input UI (FR-5.1).
 - [ ] **6.2** Simulation engine, reusing the Financial Engine deterministically (FR-5.2).
 - [ ] **6.3** Before/after comparison view (FR-5.3).
 - [ ] **6.4** Save/revisit past scenarios (FR-5.4).

@@ -19,12 +19,14 @@ frontend/
     data/              # /data — CSV/XLSX import + imported-transaction view (FR-2.1/2.2)
     data/manual/       # /data/manual — guided plain-language manual entry (FR-2.3)
     transactions/      # /transactions — list + inline edit/delete of transactions (FR-2.5)
+    scenarios/         # /scenarios — define a "what if?" scenario (FR-5.1)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm,
-                       #   StatCard, DashboardCharts — inline-SVG KPI/trend charts)
+                       #   StatCard, KpiCards, DashboardCharts — inline-SVG KPI/trend charts)
   contexts/            # AuthContext — JWT session (localStorage), current user
   hooks/               # per-feature data-fetching hooks (e.g. useHealth)
-  lib/                 # API client (api.ts) — apiGet/apiPost + auth calls; format.ts — INR/month
+  lib/                 # API client (api.ts) — apiGet/apiPost + auth calls; format.ts — INR/month;
+                       #   scenarios.ts — scenario assumption model + validation
   public/
 ```
 
@@ -102,6 +104,30 @@ from the backend; the UI only displays them.
   palette, validated light + dark), with a legend + hover tooltip on each.
   `components/StatCard.tsx` is the KPI tile; `lib/format.ts` has the INR/month
   formatters (incl. `addMonths`/`monthSpan` for the range windows).
+
+## Scenario simulator (Phase 6.1)
+
+`/scenarios` (auth-guarded, linked from the dashboard) is the input side of the
+Scenario Simulator (FR-5.1). It shows the company's **baseline** — the same
+last-12-months `kpi_snapshot` the dashboard uses, get-or-create — then asks the
+levers as plain-language questions, in the guided style of manual entry: how
+many people would you hire, what would each cost per month, and what would you
+change about marketing spend / prices / revenue (in %).
+
+`lib/scenarios.ts` owns the shared input model: the `ScenarioAssumptions` shape
+(whose keys are exactly what `scenarios.assumptions` stores, schema §7), the
+field specs that drive the form, `validateScenario` (range checks, whole-number
+hires, "hiring needs a cost per hire", "change at least one thing"), and
+`describeAssumptions`, which reads the scenario back in plain English before
+anything is run. It contains **no financial math** — every projected figure is
+deterministic backend code (architecture §4.1).
+
+"Review scenario" validates and produces a `ScenarioDraft`; editing any field
+invalidates it again. Nothing is computed or saved here — the deterministic
+simulation engine (6.2, FR-5.2), the before/after comparison (6.3, FR-5.3), and
+persistence to the `scenarios` table (6.4, FR-5.4) build on this draft.
+`components/KpiCards.tsx` holds the four headline KPI tiles, extracted from the
+dashboard so the baseline and 6.3's comparison render from one definition.
 
 ## Company profile (Phase 2.3)
 

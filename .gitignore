@@ -31,3 +31,5 @@ frontend/CLAUDE.md
 
 # Misc
 coverage/
+# TypeScript incremental build info
+*.tsbuildinfo

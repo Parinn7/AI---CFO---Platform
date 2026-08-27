@@ -24,7 +24,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { NetCashFlowChart, RevenueExpenseChart } from "@/components/DashboardCharts";
-import { StatCard } from "@/components/StatCard";
+import { KpiCards } from "@/components/KpiCards";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
@@ -231,6 +231,9 @@ export default function DashboardPage() {
           )}
         </div>
         <nav className="flex flex-wrap items-center gap-3 text-sm">
+          <Link href="/scenarios" className="underline hover:no-underline text-black/60 dark:text-white/60">
+            Scenarios
+          </Link>
           <Link href="/transactions" className="underline hover:no-underline text-black/60 dark:text-white/60">
             Transactions
           </Link>
@@ -388,42 +391,6 @@ export default function DashboardPage() {
         </>
       )}
     </main>
-  );
-}
-
-function KpiCards({ snap }: { snap: KpiSnapshot }) {
-  const burn = Number(snap.burn_rate);
-  const growth = snap.revenue_growth_pct;
-  const margin = snap.gross_margin_pct;
-  const runway = snap.runway_months;
-
-  return (
-    <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-      <StatCard
-        label="Burn rate"
-        value={burn > 0 ? `${formatINR(burn)}/mo` : `+${formatINR(-burn)}/mo`}
-        hint={burn > 0 ? "Monthly net cash burn" : "Monthly net cash surplus"}
-        accent={burn > 0 ? "bad" : "good"}
-      />
-      <StatCard
-        label="Runway"
-        value={runway === null ? "N/A" : `${Number(runway).toFixed(1)} mo`}
-        hint={runway === null ? "Not burning cash" : "At current burn rate"}
-        accent={runway !== null && Number(runway) < 6 ? "warn" : "none"}
-      />
-      <StatCard
-        label="Gross margin"
-        value={margin === null ? "—" : `${Number(margin).toFixed(1)}%`}
-        hint="Revenue minus all expenses"
-        accent={margin === null ? "none" : Number(margin) >= 0 ? "good" : "bad"}
-      />
-      <StatCard
-        label="Revenue growth"
-        value={growth === null ? "—" : `${Number(growth) >= 0 ? "+" : ""}${Number(growth).toFixed(1)}%`}
-        hint="Vs. the preceding period"
-        accent={growth === null ? "none" : Number(growth) >= 0 ? "good" : "bad"}
-      />
-    </div>
   );
 }
 
