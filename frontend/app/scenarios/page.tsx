@@ -4,12 +4,15 @@
  * X% — in the same plain-language, guided style as manual entry (FR-2.3),
  * against the baseline KPIs their real data already produces.
  *
- * Scope note: 6.1 is the input side only. The form validates the assumptions
- * and reads them back in plain language; the deterministic simulation engine
- * (6.2, FR-5.2) and the before/after comparison (6.3, FR-5.3) consume the draft
- * this screen produces, and 6.4 persists it to the `scenarios` table. Nothing
- * here computes a projected figure — all scenario math is backend code
- * (architecture §4.1).
+ * "Run simulation" validates the form, then posts the assumptions to
+ * `POST /scenarios/simulate` (6.2, FR-5.2) and renders the before/after
+ * comparison (6.3, FR-5.3). Nothing here computes a projected figure — all
+ * scenario math is deterministic backend code (architecture §4.1) and this
+ * screen only formats what comes back. Editing any field clears the result, so
+ * what's on screen always describes the form above it.
+ *
+ * The call is stateless: the backend persists nothing. Saving and revisiting
+ * scenarios is 6.4, which is where the `scenarios` table lands (schema §7).
  */
 
 "use client";
@@ -19,6 +22,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { KpiCards } from "@/components/KpiCards";
+import {
+  AppliedChangesList,
+  ScenarioComparison,
+} from "@/components/ScenarioComparison";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
@@ -26,8 +33,10 @@ import {
   getHistory,
   listCompanies,
   listKpiSnapshots,
+  simulateScenario,
   type Company,
   type KpiSnapshot,
+  type ScenarioSimulation,
 } from "@/lib/api";
 import { addMonths, formatINR, lastDayOfMonth, monthLong } from "@/lib/format";
 import {
@@ -65,6 +74,9 @@ export default function ScenariosPage() {
   const [form, setForm] = useState<ScenarioForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<ScenarioErrors>({});
   const [draft, setDraft] = useState<ScenarioDraft | null>(null);
+  const [sim, setSim] = useState<ScenarioSimulation | null>(null);
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -122,26 +134,63 @@ export default function ScenariosPage() {
     if (token) load();
   }, [token, load]);
 
-  function setField(id: AssumptionField, value: string) {
-    setForm((prev) => ({ ...prev, [id]: value }));
-    setDraft(null); // edits invalidate a reviewed draft
+  /** Any edit invalidates the result on screen — it no longer describes the form. */
+  function invalidate() {
+    setDraft(null);
+    setSim(null);
+    setRunError(null);
   }
 
-  function onReview() {
+  function setField(id: AssumptionField, value: string) {
+    setForm((prev) => ({ ...prev, [id]: value }));
+    invalidate();
+  }
+
+  /**
+   * Validate, then run the simulation (FR-5.2/FR-5.3). The period is the same
+   * last-12-months window the baseline snapshot covers, so before and after
+   * describe exactly the same stretch of time. The backend does all the math
+   * and persists nothing.
+   */
+  async function onRun() {
     const result = validateScenario(name, form);
     if (!result.ok) {
       setErrors(result.errors);
-      setDraft(null);
+      invalidate();
       return;
     }
     setErrors({});
     setDraft(result.draft);
+    if (!token || !company || !endMonth) return;
+
+    setRunning(true);
+    setRunError(null);
+    try {
+      setSim(
+        await simulateScenario(
+          {
+            company_id: company.id,
+            period_start: `${addMonths(endMonth, -(BASELINE_MONTHS - 1))}-01`,
+            period_end: lastDayOfMonth(endMonth),
+            assumptions: result.draft.assumptions,
+          },
+          token,
+        ),
+      );
+    } catch (err) {
+      setSim(null);
+      setRunError(
+        err instanceof ApiError ? err.message : "Couldn't run the simulation.",
+      );
+    } finally {
+      setRunning(false);
+    }
   }
 
   function onReset() {
     setForm(EMPTY_FORM);
     setErrors({});
-    setDraft(null);
+    invalidate();
     setName(endMonth ? defaultScenarioName(monthLong(endMonth)) : "");
   }
 
@@ -244,7 +293,7 @@ export default function ScenariosPage() {
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
-                  setDraft(null);
+                  invalidate();
                 }}
                 placeholder="e.g. Aggressive hiring"
                 aria-invalid={Boolean(errors.name)}
@@ -274,10 +323,11 @@ export default function ScenariosPage() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={onReview}
-                className="rounded-md bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+                onClick={onRun}
+                disabled={running}
+                className="rounded-md bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
-                Review scenario
+                {running ? "Running…" : "Run simulation"}
               </button>
               <button
                 type="button"
@@ -289,15 +339,22 @@ export default function ScenariosPage() {
             </div>
           </section>
 
-          {draft && (
+          {runError && (
+            <p className="text-sm text-red-500" role="alert">
+              {runError}
+            </p>
+          )}
+
+          {/* Before/after comparison (FR-5.3) */}
+          {draft && sim && (
             <section
-              className="rounded-xl border border-black/10 dark:border-white/15 p-6 space-y-4"
+              className="rounded-xl border border-black/10 dark:border-white/15 p-6 space-y-5"
               aria-live="polite"
             >
               <div>
                 <h2 className="text-base font-semibold">{draft.name}</h2>
                 <p className="mt-0.5 text-xs text-black/50 dark:text-white/50">
-                  Compared against {baselineSpan}
+                  {baselineSpan} · {sim.num_months} months · before vs. after
                 </p>
               </div>
 
@@ -317,15 +374,20 @@ export default function ScenariosPage() {
                 </ul>
               </div>
 
+              <ScenarioComparison sim={sim} />
+
+              <AppliedChangesList sim={sim} />
+
               <p className="rounded-md border border-black/10 dark:border-white/15 px-3 py-2 text-xs text-black/50 dark:text-white/50">
-                These assumptions are ready to simulate. The simulation itself —
-                recalculating cash flow, runway, profitability and growth, and
-                showing the before/after — is deterministic backend work landing
-                in the next steps of this phase (FR-5.2, FR-5.3). Nothing has been
-                saved yet.
+                Every figure is calculated by the same deterministic engine that
+                produces your real KPIs — the scenario restates this period as if
+                the assumptions had held throughout, and your actual cash on hand
+                is left untouched, so runway answers &ldquo;how long does the
+                money I have last?&rdquo;. Nothing has been saved.
               </p>
             </section>
           )}
+
         </>
       )}
     </main>

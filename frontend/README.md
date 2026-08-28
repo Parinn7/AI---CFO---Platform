@@ -19,10 +19,11 @@ frontend/
     data/              # /data — CSV/XLSX import + imported-transaction view (FR-2.1/2.2)
     data/manual/       # /data/manual — guided plain-language manual entry (FR-2.3)
     transactions/      # /transactions — list + inline edit/delete of transactions (FR-2.5)
-    scenarios/         # /scenarios — define a "what if?" scenario (FR-5.1)
+    scenarios/         # /scenarios — define + simulate a "what if?" scenario (FR-5.1/5.2/5.3)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm,
-                       #   StatCard, KpiCards, DashboardCharts — inline-SVG KPI/trend charts)
+                       #   StatCard, KpiCards, ScenarioComparison, DashboardCharts —
+                       #   inline-SVG KPI/trend charts)
   contexts/            # AuthContext — JWT session (localStorage), current user
   hooks/               # per-feature data-fetching hooks (e.g. useHealth)
   lib/                 # API client (api.ts) — apiGet/apiPost + auth calls; format.ts — INR/month;
@@ -105,7 +106,7 @@ from the backend; the UI only displays them.
   `components/StatCard.tsx` is the KPI tile; `lib/format.ts` has the INR/month
   formatters (incl. `addMonths`/`monthSpan` for the range windows).
 
-## Scenario simulator (Phase 6.1)
+## Scenario simulator (Phase 6.1 / 6.2 / 6.3)
 
 `/scenarios` (auth-guarded, linked from the dashboard) is the input side of the
 Scenario Simulator (FR-5.1). It shows the company's **baseline** — the same
@@ -122,17 +123,32 @@ hires, "hiring needs a cost per hire", "change at least one thing"), and
 anything is run. It contains **no financial math** — every projected figure is
 deterministic backend code (architecture §4.1).
 
-"Review scenario" validates and produces a `ScenarioDraft`; editing any field
-invalidates it again. Nothing is computed or saved here — the deterministic
-simulation engine (6.2, FR-5.2), the before/after comparison (6.3, FR-5.3), and
-persistence to the `scenarios` table (6.4, FR-5.4) build on this draft.
-`components/KpiCards.tsx` holds the four headline KPI tiles, extracted from the
-dashboard so the baseline and 6.3's comparison render from one definition.
+**Running it (6.3, FR-5.3):** "Run simulation" validates the form, then posts the
+assumptions via `simulateScenario` to `POST /scenarios/simulate` and renders the
+result. Editing any field clears the result, so what's on screen always describes
+the form above it. The call is stateless — nothing is saved (6.4 adds that).
 
-`lib/api.ts`'s `simulateScenario` (6.2) posts a draft's assumptions to
-`POST /scenarios/simulate` and gets back `{baseline, scenario, deltas, applied}` —
-the deterministic before/after the 6.3 comparison view will render. The call is
-stateless; nothing is saved.
+`components/ScenarioComparison.tsx` renders the before/after. It's a **table**
+rather than `KpiCards`, because the point is the comparison: three aligned
+numeric columns (before / after / change) read far better across seven metrics
+than two rows of tiles. Two details it gets right:
+
+- **A null delta is not zero.** The backend returns `null` for a delta whenever
+  *either* side is undefined (runway when not burning cash or out of cash, margin
+  at zero revenue, growth with no prior period). Those render as an em dash with
+  a tooltip naming which side is undefined — never as `0`, which would read as
+  "no change".
+- **Percentage metrics change in percentage points.** A margin going 39.0% →
+  50.6% is **+11.6pp**, not +11.6%.
+
+`AppliedChangesList` (same file) renders the `applied` block as prose — the extra
+payroll in rupees, the Marketing base the percentage was applied to, and the
+combined revenue multiplier — so the view explains *why* the numbers moved rather
+than just showing different ones. It says so explicitly when the marketing lever
+had no effect because none of the period's spend is categorised as Marketing.
+
+`components/KpiCards.tsx` holds the four headline KPI tiles, shared with the
+dashboard, and renders the scenario page's baseline panel.
 
 ## Company profile (Phase 2.3)
 

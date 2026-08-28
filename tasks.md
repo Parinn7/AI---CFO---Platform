@@ -51,7 +51,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 ## Phase 6 — Scenario Simulator
 - [x] **6.1** Scenario input UI (FR-5.1).
 - [x] **6.2** Simulation engine, reusing the Financial Engine deterministically (FR-5.2).
-- [ ] **6.3** Before/after comparison view (FR-5.3).
+- [x] **6.3** Before/after comparison view (FR-5.3).
 - [ ] **6.4** Save/revisit past scenarios (FR-5.4).
 
 ## Phase 7 — AI CFO Assistant
