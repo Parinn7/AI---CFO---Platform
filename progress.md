@@ -69,6 +69,22 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 ---
 
+## Demo Account (persistent — do not delete)
+
+A seeded demo account lives in Supabase so the app can be demoed without live data entry. **Test cleanup must scope deletes by email and leave this one alone.**
+
+- **Login:** `demo@northwind.co.in` / `demo-cfo-2026`
+- **Company:** Northwind Analytics (SaaS, INR, fiscal year starts April)
+- **Data:** 216 transactions over **36 months** (Aug 2023 – Jul 2026), uploaded through the real CSV path so parsing + auto-categorization were exercised; all 216 auto-categorized across all 6 expense/income categories, 0 uncategorized.
+- **5 flagged anomalies** (FR-3.6): a planted Feb-2026 marketing blowout plus the genuine Payroll/Marketing step-ups where the scale-up begins.
+- **3 saved scenarios** (FR-5.4) ready to revisit.
+
+**The data shape is deliberate.** Years 1–2 are profitable (building a cash reserve), year 3 is a scale-up burn. That's the *only* shape where every KPI is meaningful at once: `runway_months` is null unless cash on hand is positive **and** the burn rate is positive, so a company that's profitable throughout shows "N/A" for one of the four KPIs FR-5.2 names. Baseline (last 12 months): revenue **₹5.60 Cr**, expenses ₹6.11 Cr, net −₹50.6L, burn **₹4.22L/mo**, runway **17.29 months**, gross margin **−9.03%**, revenue growth **+70.05%** vs. the prior year.
+
+This is groundwork for **9.3** (seed realistic demo data) but 9.3 is left unchecked — it also calls for the data to be tuned against the final presentation flow.
+
+---
+
 ## Known Issues
 
 - **⚠️ DB password was briefly exposed.** The Supabase DB password was pasted into the (git-tracked) `.env.example` and appeared in chat. It was scrubbed from `.env.example` before any commit (never entered git history) and moved to the gitignored `.env`. **Recommended:** reset the database password in Supabase (Settings → Database → Reset database password) and update `backend/.env`, since it was shown in plaintext. Low urgency for a capstone, but worth doing.
