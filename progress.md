@@ -65,7 +65,7 @@ This file is the single source of truth for build status. **Claude Code must rea
 
 **Phases 4, 5 and 6 COMPLETE.** `/scenarios` is the whole FR-5.x loop — define, run, compare, save, revisit. Deterministic math only — AI never calculates (SRS FR-6.6 / architecture §4.1).
 
-**Carry forward:** this session had no browser automation available (the Chrome extension isn't connected), so 6.4 was verified by an **HTTP end-to-end run against the live Supabase-backed backend** rather than by clicking through the UI — the API contract, persistence, replay-not-recompute, stale-snapshot handling, listing and delete are all confirmed, and the frontend passes typecheck + lint + `next build`, but **the new `/scenarios` save/list/open/delete UI has not been driven in a real browser**. Worth a click-through at the start of the next session (or during 9.4's demo run-through), the way 6.1–6.3 were verified.
+**6.4 is now browser-verified** (Playwright/Chromium, light + dark, against the demo account) — the earlier "not yet clicked through" caveat is resolved. 32 assertions across both themes, **zero console errors**: login → dashboard, the saved-scenarios list, run → save → reopen → edit-clears-result, the saved timestamp in the result header, and Open scrolling the panel into view. Note the Chrome *extension* is still not connected; **Playwright is the verification path for this project** and needs no extension (`npm i playwright` in a scratch dir — the Chromium build is already cached).
 
 ---
 
@@ -87,6 +87,7 @@ This is groundwork for **9.3** (seed realistic demo data) but 9.3 is left unchec
 
 ## Known Issues
 
+- **Burn-rate tile wraps mid-number on `/scenarios`.** "₹4,21,573.50/mo" renders as "₹4,21,573.50/" + "mo" in the baseline panel (both themes). `StatCard` wraps deliberately — `break-words` was chosen so a long INR value can't overflow into the neighbouring tile on that page's narrower 4-up grid — so this is the documented tradeoff showing its ugly side, not a regression. The dashboard is unaffected (wider cards). Fix belongs in **9.2**: drop the value to `text-xl`, or give `StatCard` a compact variant for the narrower grid. Cosmetic only; the figure is correct.
 - **⚠️ DB password was briefly exposed.** The Supabase DB password was pasted into the (git-tracked) `.env.example` and appeared in chat. It was scrubbed from `.env.example` before any commit (never entered git history) and moved to the gitignored `.env`. **Recommended:** reset the database password in Supabase (Settings → Database → Reset database password) and update `backend/.env`, since it was shown in plaintext. Low urgency for a capstone, but worth doing.
 - **`greenlet` must be installed** for SQLAlchemy async on Python 3.14 (not auto-pulled). Now pinned in `requirements.txt`.
 - ~~**Health-panel browser fetch verified only indirectly.**~~ **Resolved in 5.1:** the app was driven by a **real browser** (Playwright/Chromium) for the first time — the dashboard authenticates via stored JWT and fetches all engine endpoints client-side successfully in light + dark. The long-standing "in-browser client JS never exercised by a real browser" caveat no longer applies. (One gotcha found + handled: injecting the token needs `addInitScript` so it's present before the auth-guard effect runs, else a cold-load race redirects to `/login`.)
@@ -95,6 +96,14 @@ This is groundwork for **9.3** (seed realistic demo data) but 9.3 is left unchec
 ---
 
 ## Log
+
+### 2026-08-29 — 6.4 browser verification + demo account seeded
+- **Browser-verified 6.4 at last**, via **Playwright/Chromium** — no Chrome extension needed (the extension was connected to the wrong account; Playwright is the path this project has always used). `npm i playwright` in a scratch dir; the Chromium build was already cached. **32 assertions across light + dark, zero console errors.**
+- Drove the real flow: log in through the form → dashboard → `/scenarios`. Confirmed **all three review fixes work in the browser**: the result header names the *stored* period and shows "· saved 29 Aug 2026, 04:02 pm"; "What you're modelling" lists exactly the three active levers with **no bogus 0% lines** (the `as never` bug); and clicking **Open** scrolls the result panel into view (1372 → 1054). Also confirmed: saved levers restore into the form with the zero lever **blank**, the unsaved state reads "· not saved", the Save button is replaced by a confirmation once saved, "(showing above)" marks the open row, and **editing any lever clears both the result and the saved framing**.
+- Dashboard renders fully in ~4s (dev mode, Supabase in ap-southeast-1): all four KPI tiles, both charts, the "5 anomalous expenses flagged" banner, and the recent-activity table.
+- **Seeded the persistent demo account** (see the section above) — 216 transactions over 36 months through the real CSV upload path. First attempt was discarded: a uniformly profitable company makes `runway_months` null (it needs positive cash *and* positive burn), so one of the four headline KPIs read "N/A". Re-solved the data shape offline — two profitable years then a scale-up burn — which makes every KPI meaningful at once.
+- **One cosmetic defect found**, logged under Known Issues: the burn-rate tile wraps mid-number on `/scenarios`. Deferred to 9.2 rather than restyling a shared component that the already-verified dashboard depends on.
+- Test artifacts cleaned up (two "Browser check" scenarios and duplicate saves removed); the demo account is back to its intended 3 scenarios / 216 transactions / 5 flagged anomalies. No repo changes beyond this file.
 
 ### 2026-08-29 — Phase 6.4 DONE: save/revisit past scenarios (FR-5.4) — Phase 6 complete
 - **Full stack + the first migration since 4.3.** `0005` creates **`scenarios`** (schema §7) on Supabase: `name`, `assumptions` jsonb, `baseline_kpi_snapshot_id`, `result` jsonb, timestamps, composite index `(company_id, created_at)`. Both jsonb columns are declared `JSONB().with_variant(JSON(), "sqlite")` so the SQLite-backed test suite still runs against the same models. Verified in Postgres: columns are real `jsonb`, `company_id` FK cascades, `baseline_kpi_snapshot_id` FK is `SET NULL`.
