@@ -23,7 +23,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { KpiCards } from "@/components/KpiCards";
 import {
@@ -62,6 +62,7 @@ import {
   MAX_NAME_LENGTH,
   validateScenario,
   type AssumptionField,
+  type ScenarioAssumptions,
   type FieldSpec,
   type ScenarioDraft,
   type ScenarioErrors,
@@ -101,6 +102,13 @@ export default function ScenariosPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Opening a saved scenario updates the panel *above* the list it was clicked
+  // in, which reads as "nothing happened" when the list is below the fold.
+  // Bumping this after an open scrolls the result into view; a plain ref check
+  // inside the handler would run before the panel has rendered.
+  const resultRef = useRef<HTMLElement | null>(null);
+  const [openCount, setOpenCount] = useState(0);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -161,6 +169,12 @@ export default function ScenariosPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (token) load();
   }, [token, load]);
+
+  useEffect(() => {
+    if (openCount > 0) {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [openCount]);
 
   /** Any edit invalidates the result on screen — it no longer describes the
    * form. That includes the saved-scenario framing: once a lever is touched,
@@ -281,10 +295,19 @@ export default function ScenariosPage() {
     setDraft(
       parsed.ok
         ? parsed.draft
-        : { name: scenario.name, assumptions: scenario.result.assumptions as never },
+        : {
+            name: scenario.name,
+            // Coerced, not cast: the API returns these as strings, and
+            // `describeAssumptions` compares against 0 — `"0" !== 0` is true,
+            // which would print a line for a lever that isn't set.
+            assumptions: Object.fromEntries(
+              FIELDS.map((f) => [f.id, Number(scenario.assumptions[f.id]) || 0]),
+            ) as ScenarioAssumptions,
+          },
     );
     setSim(scenario.result);
     setSavedView(scenario);
+    setOpenCount((n) => n + 1);
   }
 
   async function onDeleteSaved(scenario: SavedScenario) {
@@ -468,13 +491,14 @@ export default function ScenariosPage() {
           {/* Before/after comparison (FR-5.3) */}
           {draft && sim && (
             <section
+              ref={resultRef}
               className="rounded-xl border border-black/10 dark:border-white/15 p-6 space-y-5"
               aria-live="polite"
             >
               <div>
                 <h2 className="text-base font-semibold">{draft.name}</h2>
                 <p className="mt-0.5 text-xs text-black/50 dark:text-white/50">
-                  {baselineSpan} · {sim.num_months} months · before vs. after
+                  {periodSpan(sim)} · {sim.num_months} months · before vs. after
                   {savedView
                     ? ` · saved ${formatSavedAt(savedView.created_at)}`
                     : " · not saved"}
@@ -548,6 +572,16 @@ export default function ScenariosPage() {
       )}
     </main>
   );
+}
+
+/**
+ * The window a displayed comparison actually covers, read off the result
+ * itself rather than the page's current baseline window. A scenario saved
+ * months ago covers an older period, and the header has to name the period its
+ * own figures describe — not the one a fresh run would use.
+ */
+function periodSpan(sim: ScenarioSimulation): string {
+  return `${monthLong(sim.period_start.slice(0, 7))} – ${monthLong(sim.period_end.slice(0, 7))}`;
 }
 
 /** "29 Aug 2026, 15:34" — enough to tell two runs of the same idea apart. */
