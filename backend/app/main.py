@@ -31,6 +31,7 @@ import app.auth.models  # noqa: F401,E402
 import app.companies.models  # noqa: F401,E402
 import app.transactions.models  # noqa: F401,E402
 import app.financial_engine.models  # noqa: F401,E402
+import app.scenarios.models  # noqa: F401,E402
 
 
 @asynccontextmanager

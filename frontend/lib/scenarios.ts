@@ -262,3 +262,23 @@ export function describeAssumptions(a: ScenarioAssumptions): string[] {
 export function defaultScenarioName(monthLabel: string): string {
   return `Scenario — ${monthLabel}`;
 }
+
+/**
+ * Turn saved assumptions back into raw form state, so a past scenario can be
+ * reopened, edited and re-run (6.4, FR-5.4). A lever at 0 becomes blank rather
+ * than "0": blank is how this form spells "no change", and showing a literal 0
+ * in four boxes reads as four deliberate answers instead of one.
+ *
+ * Round-trips with `validateScenario` — reloading and re-validating an
+ * unedited scenario yields the assumptions it was saved with.
+ */
+export function formFromAssumptions(
+  a: Record<AssumptionField, number | string>,
+): ScenarioForm {
+  const form = { ...EMPTY_FORM };
+  for (const spec of FIELDS) {
+    const value = Number(a[spec.id]);
+    if (Number.isFinite(value) && value !== 0) form[spec.id] = String(value);
+  }
+  return form;
+}

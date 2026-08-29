@@ -11,8 +11,12 @@
  * screen only formats what comes back. Editing any field clears the result, so
  * what's on screen always describes the form above it.
  *
- * The call is stateless: the backend persists nothing. Saving and revisiting
- * scenarios is 6.4, which is where the `scenarios` table lands (schema §7).
+ * Running is stateless — the backend persists nothing until the user explicitly
+ * saves (6.4, FR-5.4). A saved scenario keeps the comparison as it was computed
+ * at save time, so reopening one replays that answer rather than quietly
+ * restating it against data recorded since; the levers come back with it, so
+ * "re-run this against today's numbers" is one click away and clearly a
+ * different act.
  */
 
 "use client";
@@ -29,21 +33,32 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
+  deleteScenario,
   generateKpiSnapshot,
   getHistory,
   listCompanies,
   listKpiSnapshots,
+  listScenarios,
+  saveScenario,
   simulateScenario,
   type Company,
   type KpiSnapshot,
+  type SavedScenario,
   type ScenarioSimulation,
 } from "@/lib/api";
-import { addMonths, formatINR, lastDayOfMonth, monthLong } from "@/lib/format";
+import {
+  addMonths,
+  formatCompactINR,
+  formatINR,
+  lastDayOfMonth,
+  monthLong,
+} from "@/lib/format";
 import {
   describeAssumptions,
   defaultScenarioName,
   EMPTY_FORM,
   FIELDS,
+  formFromAssumptions,
   MAX_NAME_LENGTH,
   validateScenario,
   type AssumptionField,
@@ -77,6 +92,15 @@ export default function ScenariosPage() {
   const [sim, setSim] = useState<ScenarioSimulation | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+
+  // Saved scenarios (6.4, FR-5.4). `savedView` is the stored scenario the
+  // result panel is currently showing — null means what's on screen is a fresh
+  // run that hasn't been kept.
+  const [saved, setSaved] = useState<SavedScenario[]>([]);
+  const [savedView, setSavedView] = useState<SavedScenario | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
@@ -119,6 +143,10 @@ export default function ScenariosPage() {
             )),
         );
       }
+
+      // Past scenarios (FR-5.4). Each arrives with its stored comparison, so
+      // reopening one needs no further request.
+      setSaved(await listScenarios(co.id, token));
     } catch (err) {
       setLoadError(
         err instanceof ApiError ? err.message : "Couldn't load your baseline figures.",
@@ -134,11 +162,15 @@ export default function ScenariosPage() {
     if (token) load();
   }, [token, load]);
 
-  /** Any edit invalidates the result on screen — it no longer describes the form. */
+  /** Any edit invalidates the result on screen — it no longer describes the
+   * form. That includes the saved-scenario framing: once a lever is touched,
+   * what's displayed is no longer the scenario that was stored. */
   function invalidate() {
     setDraft(null);
     setSim(null);
     setRunError(null);
+    setSavedView(null);
+    setSaveError(null);
   }
 
   function setField(id: AssumptionField, value: string) {
@@ -192,6 +224,94 @@ export default function ScenariosPage() {
     setErrors({});
     invalidate();
     setName(endMonth ? defaultScenarioName(monthLong(endMonth)) : "");
+  }
+
+  /**
+   * Keep the scenario on screen (FR-5.4). Only the levers go up — the backend
+   * re-runs the simulation and stores its own result, so nothing this page
+   * computed can end up in the database.
+   */
+  async function onSave() {
+    if (!token || !company || !endMonth || !draft || !sim) return;
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const created = await saveScenario(
+        {
+          company_id: company.id,
+          name: draft.name,
+          period_start: `${addMonths(endMonth, -(BASELINE_MONTHS - 1))}-01`,
+          period_end: lastDayOfMonth(endMonth),
+          assumptions: draft.assumptions,
+        },
+        token,
+      );
+      // Show the stored copy from here on, so what's on screen is what was
+      // actually kept rather than a look-alike computed a moment earlier.
+      setSaved((prev) => [created, ...prev]);
+      setSavedView(created);
+      setSim(created.result);
+    } catch (err) {
+      setSaveError(
+        err instanceof ApiError ? err.message : "Couldn't save this scenario.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Reopen a past scenario (FR-5.4): its stored comparison goes back on screen
+   * verbatim, and its levers go back into the form so it can be re-run against
+   * today's data as a deliberate next step.
+   */
+  function onOpenSaved(scenario: SavedScenario) {
+    const restored = formFromAssumptions(scenario.assumptions);
+    const parsed = validateScenario(scenario.name, restored);
+
+    setName(scenario.name);
+    setForm(restored);
+    setErrors({});
+    setRunError(null);
+    setSaveError(null);
+    // A saved scenario passed validation before it was stored, so this holds;
+    // the fallback keeps the stored result readable rather than blanking the
+    // screen if a much older row ever fails today's rules.
+    setDraft(
+      parsed.ok
+        ? parsed.draft
+        : { name: scenario.name, assumptions: scenario.result.assumptions as never },
+    );
+    setSim(scenario.result);
+    setSavedView(scenario);
+  }
+
+  async function onDeleteSaved(scenario: SavedScenario) {
+    if (!token) return;
+    if (
+      !window.confirm(
+        `Delete "${scenario.name}"? This removes the saved scenario only — your financial data is untouched.`,
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(scenario.id);
+    setSaveError(null);
+    try {
+      await deleteScenario(scenario.id, token);
+      setSaved((prev) => prev.filter((s) => s.id !== scenario.id));
+      // If the deleted one was on screen, clear it rather than leaving a result
+      // labelled "saved" that no longer is.
+      if (savedView?.id === scenario.id) invalidate();
+    } catch (err) {
+      setSaveError(
+        err instanceof ApiError ? err.message : "Couldn't delete that scenario.",
+      );
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   if (authLoading || !user || loading) {
@@ -355,6 +475,9 @@ export default function ScenariosPage() {
                 <h2 className="text-base font-semibold">{draft.name}</h2>
                 <p className="mt-0.5 text-xs text-black/50 dark:text-white/50">
                   {baselineSpan} · {sim.num_months} months · before vs. after
+                  {savedView
+                    ? ` · saved ${formatSavedAt(savedView.created_at)}`
+                    : " · not saved"}
                 </p>
               </div>
 
@@ -383,14 +506,143 @@ export default function ScenariosPage() {
                 produces your real KPIs — the scenario restates this period as if
                 the assumptions had held throughout, and your actual cash on hand
                 is left untouched, so runway answers &ldquo;how long does the
-                money I have last?&rdquo;. Nothing has been saved.
+                money I have last?&rdquo;.{" "}
+                {savedView
+                  ? "These are the figures as they stood when you saved this — reopening never quietly restates them. Run it again to see it against today's data."
+                  : "Nothing has been saved yet."}
               </p>
+
+              {saveError && (
+                <p className="text-sm text-red-500" role="alert">
+                  {saveError}
+                </p>
+              )}
+
+              {!savedView ? (
+                <button
+                  type="button"
+                  onClick={onSave}
+                  disabled={saving}
+                  className="rounded-md border border-black/15 dark:border-white/20 px-4 py-2 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50 transition-colors"
+                >
+                  {saving ? "Saving…" : "Save this scenario"}
+                </button>
+              ) : (
+                <p className="text-xs text-black/50 dark:text-white/50">
+                  Saved — you&apos;ll find it under &ldquo;Saved scenarios&rdquo;
+                  below.
+                </p>
+              )}
             </section>
           )}
 
+          {/* Save / revisit (FR-5.4) */}
+          <SavedScenarioList
+            scenarios={saved}
+            openId={savedView?.id ?? null}
+            deletingId={deletingId}
+            onOpen={onOpenSaved}
+            onDelete={onDeleteSaved}
+          />
         </>
       )}
     </main>
+  );
+}
+
+/** "29 Aug 2026, 15:34" — enough to tell two runs of the same idea apart. */
+function formatSavedAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Past scenarios, newest first (FR-5.4). Each row is a one-line reminder of
+ * what the scenario concluded — net cash flow before → after — so the list is
+ * scannable without opening anything.
+ *
+ * Those figures come from the *stored* result, i.e. what the engine computed
+ * when the scenario was saved. Nothing here recalculates.
+ */
+function SavedScenarioList({
+  scenarios,
+  openId,
+  deletingId,
+  onOpen,
+  onDelete,
+}: {
+  scenarios: SavedScenario[];
+  openId: string | null;
+  deletingId: string | null;
+  onOpen: (scenario: SavedScenario) => void;
+  onDelete: (scenario: SavedScenario) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-black/10 dark:border-white/15 p-6 space-y-4">
+      <div>
+        <h2 className="text-base font-semibold">Saved scenarios</h2>
+        <p className="mt-0.5 text-xs text-black/50 dark:text-white/50">
+          {scenarios.length === 0
+            ? "Run a scenario and save it to keep it here."
+            : "Opening one shows the comparison exactly as it was calculated then, and puts its assumptions back in the form so you can run it again against today's numbers."}
+        </p>
+      </div>
+
+      {scenarios.length > 0 && (
+        <ul className="divide-y divide-black/10 dark:divide-white/10">
+          {scenarios.map((scenario) => {
+            const before = Number(scenario.result.baseline.net_cash_flow);
+            const after = Number(scenario.result.scenario.net_cash_flow);
+            const isOpen = scenario.id === openId;
+            return (
+              <li
+                key={scenario.id}
+                className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">
+                    {scenario.name}
+                    {isOpen && (
+                      <span className="ml-2 text-xs font-normal text-black/50 dark:text-white/50">
+                        (showing above)
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-black/50 dark:text-white/50">
+                    Saved {formatSavedAt(scenario.created_at)} · net cash flow{" "}
+                    {formatCompactINR(before)} → {formatCompactINR(after)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpen(scenario)}
+                    className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                  >
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(scenario)}
+                    disabled={deletingId === scenario.id}
+                    className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-500 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+                  >
+                    {deletingId === scenario.id ? "…" : "Delete"}
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

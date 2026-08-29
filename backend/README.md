@@ -273,11 +273,12 @@ curl -X POST localhost:8000/api/v1/financial/kpi-snapshots \
   -d '{"company_id":"'"$COMPANY_ID"'","period_start":"2026-01-01","period_end":"2026-01-31"}'
 ```
 
-## Scenario simulator (Phase 6.2)
+## Scenario simulator (Phase 6.2 / 6.4)
 
 Answers "what if?" against a company's real figures (FR-5.2) — **deterministic
-Python, no LLM** (architecture §4.1), and **stateless**: it computes and returns,
-persisting nothing (architecture §5.2). Saving a scenario is 6.4's job.
+Python, no LLM** (architecture §4.1). **Running is stateless**: `/simulate`
+computes and returns, persisting nothing (architecture §5.2). Only an explicit
+save writes a row, which is 6.4 below.
 
 It **reuses the Financial Engine** rather than reimplementing it: aggregation
 comes from `financial_engine.service.company_totals`, and *both* sides of the
@@ -316,9 +317,29 @@ as `scenarios.assumptions` in 6.4 (schema §7).
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /api/v1/scenarios/simulate` | Body `{company_id, period_start, period_end, assumptions}` → `{baseline, scenario, deltas, applied}`. **200, not 201** — nothing is created. `422` on an out-of-range lever or reversed period, `404` not your company. |
+| `POST /api/v1/scenarios` | Same body plus `name` → the saved scenario (**201**). Re-runs the simulation server-side; a client never supplies a result. |
+| `GET /api/v1/scenarios?company_id=` | A company's saved scenarios, newest first, each with its full stored comparison. |
+| `GET /api/v1/scenarios/{id}` | One saved scenario, replayed from storage. |
+| `DELETE /api/v1/scenarios/{id}` | Discard one (`204`). Transactions and KPI snapshots are untouched. |
 
 A delta is `null` whenever either side is undefined: a runway that exists only
 after the change has no meaningful difference.
+
+**Saving and revisiting (6.4, FR-5.4).** `POST /scenarios` takes only the levers
+and re-runs the simulation itself, so a stored `result` can only be
+deterministic engine output. Two rules matter:
+
+- **A saved scenario is replayed, not recomputed.** `result` is the comparison as
+  computed at save time and is read back verbatim, so a scenario keeps stating
+  the answer it gave even after the company records new transactions.
+  Recomputing on read would silently restate something the user already read and
+  acted on. Re-running against today's data is a separate, explicit action (the
+  UI loads the levers back into the form).
+- **The baseline link never goes stale.** `baseline_kpi_snapshot_id` reuses the
+  newest snapshot for the same company + period *only if it still agrees with
+  the freshly computed baseline*; otherwise a fresh snapshot is generated. It's
+  nullable with `ON DELETE SET NULL` — losing a snapshot must not delete a
+  user's saved scenario.
 
 ```bash
 curl -X POST localhost:8000/api/v1/scenarios/simulate \

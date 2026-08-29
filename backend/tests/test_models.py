@@ -9,6 +9,7 @@ from app.auth import models as _auth  # noqa: F401
 from app.companies import models as _companies  # noqa: F401
 from app.transactions import models as _transactions  # noqa: F401
 from app.financial_engine import models as _financial  # noqa: F401
+from app.scenarios import models as _scenarios  # noqa: F401
 
 
 def test_expected_tables_registered():
@@ -19,6 +20,7 @@ def test_expected_tables_registered():
         "upload_batches",
         "transactions",
         "kpi_snapshots",
+        "scenarios",
     }
 
 
@@ -95,3 +97,31 @@ def test_upload_batches_columns_and_constraints():
     )
     constraint_names = {c.name for c in table.constraints if c.name}
     assert "ck_upload_batches_status" in constraint_names
+
+
+def test_scenarios_columns_and_constraints():
+    """Saved what-ifs (task 6.4, schema §7). `baseline_kpi_snapshot_id` is
+    nullable on purpose: losing a snapshot must not delete a saved scenario."""
+    table = Base.metadata.tables["scenarios"]
+    cols = table.columns
+    assert {
+        "id",
+        "company_id",
+        "name",
+        "assumptions",
+        "baseline_kpi_snapshot_id",
+        "result",
+        "created_at",
+        "updated_at",
+    } <= set(cols.keys())
+    assert cols["name"].nullable is False
+    assert cols["assumptions"].nullable is False
+    assert cols["result"].nullable is False
+    assert cols["baseline_kpi_snapshot_id"].nullable is True
+
+    ondelete = {
+        tuple(fk.parent.name for fk in fk_c.elements): fk_c.ondelete
+        for fk_c in table.foreign_key_constraints
+    }
+    assert ondelete[("company_id",)] == "CASCADE"
+    assert ondelete[("baseline_kpi_snapshot_id",)] == "SET NULL"

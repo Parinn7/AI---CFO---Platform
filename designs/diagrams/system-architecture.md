@@ -160,6 +160,24 @@ Modelling decisions locked in with the user during 6.2:
 - **Growth compares against the real prior window** on both sides — a scenario
   does not rewrite history.
 
+**Saving is explicit, and a saved scenario is replayed rather than recomputed (6.4).**
+`POST /api/v1/scenarios` (201) re-runs the simulation server-side from the
+submitted levers and persists the result to `scenarios`; the client never sends
+a result, so nothing but engine output can be stored. `GET /api/v1/scenarios`
+lists a company's saved scenarios newest-first (each carrying its full stored
+comparison, so reopening one costs no extra request), `GET|DELETE
+/api/v1/scenarios/{id}` revisit and discard one. Ownership-scoped like every
+other route, 404 rather than 403 for someone else's row.
+
+The decision that shapes this: **`result` is read back verbatim.** A saved
+scenario states the answer it gave *at save time*, so recording new transactions
+never silently restates a comparison the user already read and acted on. Loading
+one back into the form and pressing Run is how you ask the same question of
+today's data — a deliberate, visible act rather than a side effect. The saved
+`baseline_kpi_snapshot_id` reuses an existing snapshot only while that snapshot
+still agrees with the computed baseline, so the traceability link never points
+at figures the comparison didn't use.
+
 ### 5.3 AI CFO Chat
 `User asks a question` → `AI CFO Orchestrator pulls current KPIs/context` → `Constructs prompt` → `Calls LLM API` → `Stores + returns response`
 

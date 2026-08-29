@@ -115,6 +115,13 @@ Precomputed KPI values, stored per company per period. This is the table the AI 
 | result | jsonb | computed before/after KPI comparison (Financial Engine output, stored not re-derived) |
 | created_at | timestamptz | |
 
+**Implementation note (task 6.4):** created by Alembic migration `0005`, composite index on `(company_id, created_at)` for the newest-first listing. Written only by `scenarios.service.save_scenario`, which **re-runs the simulation server-side** from the submitted levers — a client never supplies a result, so a stored `result` can only be deterministic engine output (architecture §4.1).
+
+- `assumptions` holds the five levers verbatim in the shape fixed by `frontend/lib/scenarios.ts` (`new_hires`, `avg_salary_per_hire`, `marketing_change_pct`, `pricing_change_pct`, `revenue_change_pct`), so a saved scenario reloads straight into the input form.
+- `result` is the full `/scenarios/simulate` response document (period, `num_months`, `assumptions`, `baseline`, `scenario`, `deltas`, `applied`). **Read back verbatim, never recomputed** — revisiting a scenario must show the answer it gave when saved, not a silent restatement against transactions recorded since. Re-running against today's data is a separate, explicit action.
+- `baseline_kpi_snapshot_id` is **nullable with ON DELETE SET NULL** (a widening of this table's original spec): losing a snapshot must not delete a user's saved scenario, and the figures it was compared against already live inside `result`. On save it reuses the newest snapshot for the same company + period *only if that snapshot still agrees with the freshly computed baseline* — a stale one would point at figures the saved comparison never used, so a fresh snapshot is generated instead.
+- Deleting a scenario removes only that row; transactions and KPI snapshots are untouched.
+
 ## 8. `chat_sessions`
 
 | Column | Type | Notes |

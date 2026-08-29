@@ -106,7 +106,7 @@ from the backend; the UI only displays them.
   `components/StatCard.tsx` is the KPI tile; `lib/format.ts` has the INR/month
   formatters (incl. `addMonths`/`monthSpan` for the range windows).
 
-## Scenario simulator (Phase 6.1 / 6.2 / 6.3)
+## Scenario simulator (Phase 6.1 / 6.2 / 6.3 / 6.4)
 
 `/scenarios` (auth-guarded, linked from the dashboard) is the input side of the
 Scenario Simulator (FR-5.1). It shows the company's **baseline** — the same
@@ -126,7 +126,7 @@ deterministic backend code (architecture §4.1).
 **Running it (6.3, FR-5.3):** "Run simulation" validates the form, then posts the
 assumptions via `simulateScenario` to `POST /scenarios/simulate` and renders the
 result. Editing any field clears the result, so what's on screen always describes
-the form above it. The call is stateless — nothing is saved (6.4 adds that).
+the form above it. The call is stateless — nothing is saved until you say so.
 
 `components/ScenarioComparison.tsx` renders the before/after. It's a **table**
 rather than `KpiCards`, because the point is the comparison: three aligned
@@ -149,6 +149,23 @@ had no effect because none of the period's spend is categorised as Marketing.
 
 `components/KpiCards.tsx` holds the four headline KPI tiles, shared with the
 dashboard, and renders the scenario page's baseline panel.
+
+**Saving and revisiting (6.4, FR-5.4):** "Save this scenario" posts the levers to
+`POST /scenarios` — never the result, which the backend re-runs and stores
+itself. A **Saved scenarios** list (name · save time · net cash flow before →
+after) sits below, with Open and Delete. **Opening one shows the stored
+comparison verbatim** — the figures as they were when it was saved, not a
+recomputation against today's data — and drops its levers back into the form, so
+re-running it is a deliberate next click. The result header says which it is
+("· saved 29 Aug 2026, 15:34" vs. "· not saved"), and touching any lever clears
+the saved framing along with the result.
+
+`formFromAssumptions()` in `lib/scenarios.ts` restores saved levers into form
+state; a lever at 0 comes back **blank**, because blank is how this form spells
+"no change". Note the read/write asymmetry in `lib/api.ts`: assumptions are
+*sent* as numbers (`ScenarioAssumptionsPayload`) but come *back* with the
+Decimal fields as strings (`ScenarioAssumptionsRead`), like every other figure
+the API returns — coerce, don't assume.
 
 ## Company profile (Phase 2.3)
 

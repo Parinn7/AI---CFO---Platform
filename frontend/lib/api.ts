@@ -527,14 +527,23 @@ export function listKpiSnapshots(
 
 // --- Scenario simulator (6.2, FR-5.2/FR-5.3) ---
 
-/** The scenario levers. Mirrors `lib/scenarios.ts`'s `ScenarioAssumptions` and
- * the backend's `ScenarioAssumptionsIn` — all three agree on names + bounds. */
+/** The scenario levers, as *sent*. Mirrors `lib/scenarios.ts`'s
+ * `ScenarioAssumptions` and the backend's `ScenarioAssumptionsIn` — all three
+ * agree on names + bounds. */
 export type ScenarioAssumptionsPayload = {
   new_hires: number;
   avg_salary_per_hire: number;
   marketing_change_pct: number;
   pricing_change_pct: number;
   revenue_change_pct: number;
+};
+
+/** The same levers, as *read back*. Every money/percentage field is a backend
+ * `Decimal`, which serialises to a string like the rest of the API's figures,
+ * while `new_hires` is a plain integer — so a reader must coerce rather than
+ * assume. Send `ScenarioAssumptionsPayload`, read this. */
+export type ScenarioAssumptionsRead = {
+  [K in keyof ScenarioAssumptionsPayload]: number | string;
 };
 
 /** One side of the before/after — the same KPI set a snapshot holds. */
@@ -570,7 +579,7 @@ export type ScenarioSimulation = {
   period_start: string;
   period_end: string;
   num_months: number;
-  assumptions: ScenarioAssumptionsPayload;
+  assumptions: ScenarioAssumptionsRead;
   baseline: ScenarioKpis;
   scenario: ScenarioKpis;
   deltas: ScenarioDeltas;
@@ -594,4 +603,61 @@ export function simulateScenario(
   token: string,
 ): Promise<ScenarioSimulation> {
   return apiPost<ScenarioSimulation>("/api/v1/scenarios/simulate", input, token);
+}
+
+// --- Saved scenarios (6.4, FR-5.4) ---
+
+/**
+ * A scenario the user chose to keep. `result` is the comparison **as it was
+ * computed at save time** — the backend replays it from storage rather than
+ * recomputing, so revisiting a scenario shows the same figures it showed when
+ * saved even after new transactions land. Re-running against today's data is a
+ * separate, explicit action (load it back into the form and run it).
+ *
+ * It has the same shape as a fresh `ScenarioSimulation`, so one component
+ * renders both.
+ */
+export type SavedScenario = {
+  id: string;
+  company_id: string;
+  name: string;
+  assumptions: ScenarioAssumptionsRead;
+  /** The `kpi_snapshots` row the comparison was made against. */
+  baseline_kpi_snapshot_id: string | null;
+  result: ScenarioSimulation;
+  created_at: string;
+};
+
+/**
+ * Save a scenario (FR-5.4). Only the levers are sent — the backend re-runs the
+ * simulation itself, so a stored result is always engine output rather than
+ * anything this client computed (architecture §4.1).
+ */
+export function saveScenario(
+  input: {
+    company_id: string;
+    name: string;
+    period_start: string;
+    period_end: string;
+    assumptions: ScenarioAssumptionsPayload;
+  },
+  token: string,
+): Promise<SavedScenario> {
+  return apiPost<SavedScenario>("/api/v1/scenarios", input, token);
+}
+
+/** A company's saved scenarios, newest first. Each carries its full stored
+ * comparison, so opening one needs no extra request. */
+export function listScenarios(
+  companyId: string,
+  token: string,
+): Promise<SavedScenario[]> {
+  return apiGet<SavedScenario[]>(
+    `/api/v1/scenarios?company_id=${companyId}`,
+    token,
+  );
+}
+
+export function deleteScenario(id: string, token: string): Promise<void> {
+  return apiDelete(`/api/v1/scenarios/${id}`, token);
 }

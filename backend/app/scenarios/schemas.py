@@ -107,3 +107,52 @@ class ScenarioSimulationRead(BaseModel):
     scenario: ScenarioKpis
     deltas: ScenarioDeltas
     applied: AppliedChangesRead
+
+
+# --- Saved scenarios (task 6.4, FR-5.4) ---
+
+
+class ScenarioSaveRequest(BaseModel):
+    """Save a scenario (FR-5.4).
+
+    Deliberately the simulate request plus a name: the server **re-runs the
+    simulation** from these inputs rather than accepting a client-supplied
+    result, so a stored `result` can only ever be deterministic engine output
+    (architecture §4.1). Same period/lever validation as `/simulate`, so a
+    scenario that runs is a scenario that saves.
+    """
+
+    company_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=80)
+    period_start: dt.date
+    period_end: dt.date
+    assumptions: ScenarioAssumptionsIn
+
+    @model_validator(mode="after")
+    def _ordered_and_named(self) -> "ScenarioSaveRequest":
+        if self.period_start > self.period_end:
+            raise ValueError("period_start must not be after period_end.")
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("name must not be blank.")
+        return self
+
+
+class ScenarioRead(BaseModel):
+    """A saved scenario (FR-5.4).
+
+    `result` is the comparison **as computed at save time** — replayed from the
+    stored jsonb, never recomputed on read (schema §7), so revisiting a scenario
+    shows the same figures it showed when saved even after the company's data
+    moves on. Re-running against today's numbers is a separate, explicit action.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    company_id: uuid.UUID
+    name: str
+    assumptions: ScenarioAssumptionsIn
+    baseline_kpi_snapshot_id: uuid.UUID | None
+    result: ScenarioSimulationRead
+    created_at: dt.datetime
