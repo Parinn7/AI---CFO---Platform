@@ -348,6 +348,40 @@ curl -X POST localhost:8000/api/v1/scenarios/simulate \
        "assumptions":{"new_hires":5,"avg_salary_per_hire":"90000","marketing_change_pct":"50"}}'
 ```
 
+## AI CFO chat (Phase 7.1)
+
+The conversational interface (FR-6.1) and its persistence — `chat_sessions` and
+`chat_messages` (schema §8–9, migration `0006`). **No LLM is called yet.** 7.1 is
+deliberately the interface: context assembly from `kpi_snapshots` (7.2), the
+plain-language system prompt and disclaimer (7.3), and the swappable provider
+(7.4) come next, all behind one seam — `service.answer_question(question) ->
+(reply, snapshot_id)` — whose signature is already what the real version needs.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/chat/sessions` | Start a conversation for a company (`201`). |
+| `GET /api/v1/chat/sessions?company_id=` | Conversations, newest first, each labelled by its opening question. |
+| `GET /api/v1/chat/sessions/{id}` | One conversation with its full history, oldest turn first. |
+| `POST /api/v1/chat/sessions/{id}/messages` | Ask a question → `{user_message, assistant_message}` (`201`). Body carries **only** `content`. |
+| `DELETE /api/v1/chat/sessions/{id}` | Delete a conversation and its messages (`204`). |
+
+**Decisions worth knowing:**
+
+- **A question always produces an exchange**, both turns written in one
+  transaction, so history can never hold a question with no answer.
+- **The placeholder answer is deliberately inert** — it states the assistant
+  isn't connected and contains no figures and no advice. A stub that *sounded*
+  like financial output is the real hazard: someone could demo it and a reader
+  could believe it. A test pins that the reply contains no digits, `₹` or `%`.
+- **Only the question crosses the wire.** Role and answer are server-decided, so
+  a client can't forge an assistant turn into stored history (also pinned).
+- **Timestamps are set in Python, not by `now()`.** Conversation order is a
+  correctness property and the server clock can't carry it: Postgres stamps a
+  whole transaction identically (question and answer tie) and SQLite's
+  `CURRENT_TIMESTAMP` has second resolution (a whole fast conversation ties).
+- **Access is scoped by company ownership**, not `chat_sessions.user_id` — the
+  company carries the data; `user_id` records who started the conversation.
+
 ## Notes
 
 - **All financial math is deterministic Python** in `financial_engine`/`scenarios`.

@@ -142,6 +142,13 @@ Precomputed KPI values, stored per company per period. This is the table the AI 
 | kpi_context_snapshot_id | uuid, FK → kpi_snapshots.id | nullable — which precomputed KPIs were passed as context for this message, for traceability/debugging |
 | created_at | timestamptz | |
 
+**Implementation note (task 7.1):** both tables created by Alembic migration `0006`. `chat_sessions.started_at` is stored as the `created_at` timestamp mixin (as with `kpi_snapshots.computed_at`). `role` is guarded by a check constraint; composite index on `chat_messages(session_id, created_at)` for ordered retrieval.
+
+- **`kpi_context_snapshot_id` is the audit trail for architecture §4.1.** It records which precomputed snapshot the assistant was *given* for an answer, which is what makes "the AI never calculates" checkable rather than merely asserted. It is NULL throughout 7.1 (no context is assembled until 7.2) and always NULL for user turns. `ON DELETE SET NULL` — losing a snapshot must not delete a conversation.
+- **Timestamps are set by the application, not `now()`.** Conversation order is a correctness property (a question must read back before its answer), and the server clock is too coarse to guarantee it: Postgres stamps a whole transaction identically, so a question and its answer tie, and SQLite's `CURRENT_TIMESTAMP` has only second resolution, so an entire fast conversation ties. `ai_cfo.service` assigns microsecond-resolution Python timestamps instead, with the answer strictly after its question.
+- **Access is scoped by company ownership, not `chat_sessions.user_id`.** The company carries the financial data, so its owner is who may read discussions of it; `user_id` records authorship.
+- Deleting a session cascades to its messages; the company's financial data is untouched.
+
 ## 10. `reports`
 
 | Column | Type | Notes |

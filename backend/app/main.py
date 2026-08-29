@@ -20,6 +20,7 @@ from app.transactions.router import (
 )
 from app.financial_engine.router import router as financial_router
 from app.scenarios.router import router as scenarios_router
+from app.ai_cfo.router import router as ai_cfo_router
 from app.core.config import settings
 from app.core.database import check_connection, dispose_engine
 
@@ -32,6 +33,7 @@ import app.companies.models  # noqa: F401,E402
 import app.transactions.models  # noqa: F401,E402
 import app.financial_engine.models  # noqa: F401,E402
 import app.scenarios.models  # noqa: F401,E402
+import app.ai_cfo.models  # noqa: F401,E402
 
 
 @asynccontextmanager
@@ -78,6 +80,7 @@ api_router.include_router(categories_router)
 api_router.include_router(transactions_router)
 api_router.include_router(financial_router)
 api_router.include_router(scenarios_router)
+api_router.include_router(ai_cfo_router)
 
 app.include_router(api_router)
 

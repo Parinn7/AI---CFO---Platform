@@ -10,6 +10,7 @@ from app.companies import models as _companies  # noqa: F401
 from app.transactions import models as _transactions  # noqa: F401
 from app.financial_engine import models as _financial  # noqa: F401
 from app.scenarios import models as _scenarios  # noqa: F401
+from app.ai_cfo import models as _ai_cfo  # noqa: F401
 
 
 def test_expected_tables_registered():
@@ -21,6 +22,8 @@ def test_expected_tables_registered():
         "transactions",
         "kpi_snapshots",
         "scenarios",
+        "chat_sessions",
+        "chat_messages",
     }
 
 

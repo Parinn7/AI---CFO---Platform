@@ -167,6 +167,28 @@ state; a lever at 0 comes back **blank**, because blank is how this form spells
 Decimal fields as strings (`ScenarioAssumptionsRead`), like every other figure
 the API returns — coerce, don't assume.
 
+## AI CFO chat (Phase 7.1)
+
+`/chat` (auth-guarded, linked from the dashboard and `/scenarios`) is the
+conversational interface (FR-6.1): a conversation list, a transcript, and a
+composer. Conversations persist and reopen where you left off.
+
+**It is honest that it isn't finished.** 7.1 is the interface and its
+persistence — no model is connected — so the page carries a "Not connected yet"
+notice and the assistant replies with a placeholder that quotes no figures. A
+screen that looked like a working assistant and simply gave poor answers would
+be worse than one that says what it is.
+
+Details it gets right:
+
+- **A conversation is created lazily**, on the first question, so opening the
+  page never leaves an empty session in the history.
+- **The transcript renders the stored rows** returned by the server, not a local
+  echo of what was typed — so what's on screen is what's in the database.
+- **The advisory disclaimer (FR-6.5) is shown from the start**, under the
+  composer, because assistant-labelled text exists from the start. Enter sends,
+  Shift+Enter breaks a line.
+
 ## Company profile (Phase 2.3)
 
 `/company` (auth-guarded, linked from the dashboard) manages the user's company

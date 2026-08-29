@@ -22,6 +22,7 @@ from app.companies import models as _company_models  # noqa: F401
 from app.transactions import models as _transaction_models  # noqa: F401
 from app.financial_engine import models as _financial_models  # noqa: F401
 from app.scenarios import models as _scenario_models  # noqa: F401
+from app.ai_cfo import models as _ai_cfo_models  # noqa: F401
 
 config = context.config
 

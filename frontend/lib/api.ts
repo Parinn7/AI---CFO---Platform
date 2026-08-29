@@ -661,3 +661,89 @@ export function listScenarios(
 export function deleteScenario(id: string, token: string): Promise<void> {
   return apiDelete(`/api/v1/scenarios/${id}`, token);
 }
+
+// --- AI CFO chat (7.1, FR-6.1) ---
+
+export type ChatMessage = {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  content: string;
+  /** Which precomputed KPI snapshot the assistant was given for this turn —
+   * null for user turns, and for every turn until context assembly (7.2). */
+  kpi_context_snapshot_id: string | null;
+  created_at: string;
+};
+
+/** A conversation, without its history. `preview` is the opening question,
+ * which is what labels it in the list — there is no title column. */
+export type ChatSession = {
+  id: string;
+  company_id: string;
+  user_id: string;
+  created_at: string;
+  message_count: number;
+  preview: string | null;
+};
+
+export type ChatSessionDetail = ChatSession & { messages: ChatMessage[] };
+
+/** What you asked and what came back, as stored. Rendering these rather than
+ * echoing a local copy keeps the screen and the database in agreement. */
+export type ChatTurn = {
+  user_message: ChatMessage;
+  assistant_message: ChatMessage;
+};
+
+export function createChatSession(
+  companyId: string,
+  token: string,
+): Promise<ChatSession> {
+  return apiPost<ChatSession>(
+    "/api/v1/chat/sessions",
+    { company_id: companyId },
+    token,
+  );
+}
+
+/** A company's conversations, newest first. */
+export function listChatSessions(
+  companyId: string,
+  token: string,
+): Promise<ChatSession[]> {
+  return apiGet<ChatSession[]>(
+    `/api/v1/chat/sessions?company_id=${companyId}`,
+    token,
+  );
+}
+
+export function getChatSession(
+  id: string,
+  token: string,
+): Promise<ChatSessionDetail> {
+  return apiGet<ChatSessionDetail>(`/api/v1/chat/sessions/${id}`, token);
+}
+
+/**
+ * Ask the assistant something. Only the question is sent — the role and the
+ * answer are decided server-side, so this client can't write into the
+ * assistant's half of the conversation.
+ *
+ * Until 7.4 the answer is a fixed placeholder saying the assistant isn't
+ * connected yet; it quotes no figures and is not financial output.
+ */
+export function postChatMessage(
+  sessionId: string,
+  content: string,
+  token: string,
+): Promise<ChatTurn> {
+  return apiPost<ChatTurn>(
+    `/api/v1/chat/sessions/${sessionId}/messages`,
+    { content },
+    token,
+  );
+}
+
+export function deleteChatSession(id: string, token: string): Promise<void> {
+  return apiDelete(`/api/v1/chat/sessions/${id}`, token);
+}

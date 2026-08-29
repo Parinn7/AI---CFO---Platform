@@ -231,6 +231,9 @@ export default function DashboardPage() {
           )}
         </div>
         <nav className="flex flex-wrap items-center gap-3 text-sm">
+          <Link href="/chat" className="underline hover:no-underline text-black/60 dark:text-white/60">
+            AI CFO
+          </Link>
           <Link href="/scenarios" className="underline hover:no-underline text-black/60 dark:text-white/60">
             Scenarios
           </Link>

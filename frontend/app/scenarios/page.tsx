@@ -368,6 +368,12 @@ export default function ScenariosPage() {
             Dashboard
           </Link>
           <Link
+            href="/chat"
+            className="underline hover:no-underline text-black/60 dark:text-white/60"
+          >
+            AI CFO
+          </Link>
+          <Link
             href="/transactions"
             className="underline hover:no-underline text-black/60 dark:text-white/60"
           >

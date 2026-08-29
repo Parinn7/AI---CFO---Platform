@@ -181,6 +181,33 @@ at figures the comparison didn't use.
 ### 5.3 AI CFO Chat
 `User asks a question` → `AI CFO Orchestrator pulls current KPIs/context` → `Constructs prompt` → `Calls LLM API` → `Stores + returns response`
 
+**The interface and its persistence land before the model (7.1).** `app/ai_cfo/`
+ships the chat screen, `chat_sessions`/`chat_messages` (migration `0006`) and
+owner-scoped endpoints — `POST /api/v1/chat/sessions`, `GET
+/api/v1/chat/sessions`, `GET|DELETE /api/v1/chat/sessions/{id}`, `POST
+/api/v1/chat/sessions/{id}/messages` — with **no LLM call at all**. Context
+assembly (7.2), the system prompt (7.3) and the provider (7.4) fill in behind a
+single seam, `service.answer_question(question) -> (reply, snapshot_id)`, whose
+signature is already the one the real implementation needs.
+
+Decisions made in 7.1:
+
+- **A question always produces an exchange.** Both turns are written in one
+  transaction, so history can never hold a question with no answer. Until the
+  provider exists, the answer is a fixed placeholder that says the assistant
+  isn't connected and quotes **no figures and no advice** — a plausible-sounding
+  stub is the real hazard, because a demo could show it and a reader believe it.
+- **Only the question crosses the wire.** `POST .../messages` accepts `content`
+  and nothing else; role and answer are server-decided, so a client cannot forge
+  an assistant turn into stored history.
+- **`kpi_context_snapshot_id` exists from the first migration**, even though
+  nothing populates it until 7.2, because it is the audit trail for §4.1 — being
+  able to point at the exact snapshot behind an answer is what makes "the AI
+  never calculates" verifiable.
+- **The advisory disclaimer (FR-6.5) is shown from 7.1**, not deferred to 7.3
+  with the system prompt: a screen rendering assistant-labelled text should
+  carry it the moment that text exists.
+
 ### 5.4 Report Generation
 `User requests report` → `Report Generator pulls KPIs, trends, and (optionally) AI-generated commentary` → `Renders to PDF` → `Stored/returned for download`
 
