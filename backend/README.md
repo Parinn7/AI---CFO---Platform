@@ -9,23 +9,23 @@ so each feature is self-contained.
 backend/
   app/
     main.py              # FastAPI app: CORS, health endpoint, router wiring
-    core/                # config, database (async engine, session, Base), shared model mixins
+    core/                # config, database (async engine, session, Base), shared model mixins, INR/date formatting
     auth/                # Phase 2 — User model + signup/login/JWT: security, service, schemas, dependencies, router (FR-1.1, FR-1.2)
     companies/           # Phase 2 — Company model + owner-scoped profile CRUD: schemas, service, router (FR-1.3)
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
     financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, anomaly, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — deterministic scenario simulation: simulation, service, schemas, router (FR-5.x)
-    ai_cfo/              # Phase 7 — LLM orchestration, chat (FR-6.x)
+    ai_cfo/              # Phase 7 — chat + KPI context assembly: models (chat_sessions/chat_messages), context, service, schemas, router (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
-  migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots)
+  migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots; 0005 scenarios; 0006 chat_sessions+chat_messages)
   tests/                 # pytest smoke + feature tests
   alembic.ini
   requirements.txt
   .env.example
 ```
 
-The remaining domain modules (`ai_cfo`, `reports`) are package placeholders —
-they gain routers/models/services in their respective phases.
+`reports` is still a package placeholder — it gains its router/service in
+Phase 8. `ai_cfo` is built out except for the model call itself (7.3–7.4).
 
 ## Setup
 
@@ -348,14 +348,14 @@ curl -X POST localhost:8000/api/v1/scenarios/simulate \
        "assumptions":{"new_hires":5,"avg_salary_per_hire":"90000","marketing_change_pct":"50"}}'
 ```
 
-## AI CFO chat (Phase 7.1)
+## AI CFO chat (Phase 7.1–7.2)
 
-The conversational interface (FR-6.1) and its persistence — `chat_sessions` and
-`chat_messages` (schema §8–9, migration `0006`). **No LLM is called yet.** 7.1 is
-deliberately the interface: context assembly from `kpi_snapshots` (7.2), the
-plain-language system prompt and disclaimer (7.3), and the swappable provider
-(7.4) come next, all behind one seam — `service.answer_question(question) ->
-(reply, snapshot_id)` — whose signature is already what the real version needs.
+The conversational interface (FR-6.1), its persistence — `chat_sessions` and
+`chat_messages` (schema §8–9, migration `0006`) — and the KPI context an answer
+is grounded in (FR-6.2). **No LLM is called yet.** What remains is the
+plain-language system prompt and disclaimer (7.3) and the swappable provider
+(7.4), both behind one seam: `service.answer_question(db, company_id, question)
+-> (reply, snapshot_id)`.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -364,6 +364,45 @@ plain-language system prompt and disclaimer (7.3), and the swappable provider
 | `GET /api/v1/chat/sessions/{id}` | One conversation with its full history, oldest turn first. |
 | `POST /api/v1/chat/sessions/{id}/messages` | Ask a question → `{user_message, assistant_message}` (`201`). Body carries **only** `content`. |
 | `DELETE /api/v1/chat/sessions/{id}` | Delete a conversation and its messages (`204`). |
+| `GET /api/v1/chat/context?company_id=` | Exactly what the assistant is given, including the rendered prompt block (7.2). |
+
+### Context assembly (7.2, FR-6.2 / architecture §4.1)
+
+`app/ai_cfo/context.py` is **pure and DB-free** (like
+`financial_engine/calculations.py`) and reads **one `kpi_snapshots` row**. It has
+no import path to `transactions` and never renders one. `service.build_context`
+picks the snapshot: the **last 12 months of available data** — the same window
+the dashboard and a scenario's baseline use, because an answer quoting a
+different period from the one on screen is indefensible even when both are
+right.
+
+- **`GET /chat/context` exists so §4.1 can be checked, not trusted.** Every
+  number in the response is a stored snapshot value; `/chat` renders it under
+  *"What the assistant can see"*. A test plants a transaction with a distinctive
+  description and asserts it appears nowhere in the assembled context.
+- **Undefined figures are stated, not dropped.** Runway, margin and growth are
+  each null in real cases; the context says *"Not applicable"* **and why**.
+  Runway matters most — null means either *not burning cash* (fine) or *out of
+  cash* (an emergency), and the burn rate tells them apart with no new
+  arithmetic.
+- **Notes are about this company's value, never a bare threshold.** The text is
+  handed to the model verbatim, so "under six months is urgent" printed beside a
+  17-month runway would be an invitation to alarm; it reads "Above the six
+  months usually treated as urgent."
+- **Snapshots are reused while they still hold.** `snapshot_for_period` (moved
+  into `financial_engine/service.py` from `scenarios/service.py`, where the same
+  logic already lived) returns the stored row **only if it still states what the
+  engine computes now**, so a long conversation doesn't write a row per
+  question, but recording data mid-conversation moves later answers onto fresh
+  figures — and `kpi_context_snapshot_id` never points at figures an answer
+  didn't use.
+- **A company with no transactions gets `available: false`, not a 404** —
+  having entered no data is a normal state. No snapshot of zeros is invented:
+  "your revenue is ₹0" reads as a finding rather than an absence of data.
+- **`question` is deliberately not inspected.** Branching on what was asked —
+  picking a different period for a runway question — would be the assistant
+  starting to reason about finances on its own. The context is small enough to
+  always carry everything.
 
 **Decisions worth knowing:**
 

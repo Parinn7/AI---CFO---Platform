@@ -12,11 +12,13 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.financial_engine.calculations import (
+    KpiValues,
     MonthlyCashFlow,
     MonthlyPerformance,
     Totals,
@@ -26,6 +28,7 @@ from app.financial_engine.calculations import (
     month_range,
     monthly_history,
     months_in_period,
+    quantize_money,
 )
 from app.financial_engine.anomaly import ExpenseTxn, detect_expense_anomalies
 from app.financial_engine.categorization import guess_category
@@ -131,15 +134,18 @@ def previous_window(
     return prev_start, prev_end
 
 
-async def generate_kpi_snapshot(
+async def compute_period_kpis(
     db: AsyncSession,
     company_id: uuid.UUID,
     period_start: dt.date,
     period_end: dt.date,
-) -> KpiSnapshot:
-    """Compute and persist a KPI snapshot for a company over the given period
-    (FR-4.1–4.5). All figures are deterministic (architecture §4.1); this is the
-    only writer of `kpi_snapshots`, which the AI CFO later reads from.
+) -> KpiValues:
+    """The KPI set for a company over a period, computed but not stored
+    (FR-4.1–4.5). Deterministic — no LLM (architecture §4.1).
+
+    Split out from `generate_kpi_snapshot` so callers that need the figures
+    *before* deciding whether a stored row already states them — see
+    `snapshot_for_period` — don't have to write a snapshot to find out.
 
     Cash-on-hand for runway is the cumulative net cash flow through `period_end`
     (opening cash ₹0). Revenue growth compares against the immediately preceding
@@ -157,13 +163,25 @@ async def generate_kpi_snapshot(
         await _load_rows(db, company_id, prev_start, prev_end)
     )
 
-    kpis = compute_kpis(
+    return compute_kpis(
         total_revenue=period_totals.total_income,
         total_expenses=period_totals.total_expenses,
         num_months=months_in_period(period_start, period_end),
         cash_on_hand=cash_on_hand,
         prev_revenue=prev_totals.total_income,
     )
+
+
+async def generate_kpi_snapshot(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    period_start: dt.date,
+    period_end: dt.date,
+) -> KpiSnapshot:
+    """Compute and persist a KPI snapshot for a company over the given period
+    (FR-4.1–4.5). All figures are deterministic (architecture §4.1); this is the
+    only writer of `kpi_snapshots`, which the AI CFO reads from."""
+    kpis = await compute_period_kpis(db, company_id, period_start, period_end)
 
     snapshot = KpiSnapshot(
         company_id=company_id,
@@ -184,6 +202,80 @@ async def generate_kpi_snapshot(
     return snapshot
 
 
+# The KPI columns a stored snapshot and a freshly-computed set must agree on to
+# count as the same measurement.
+_KPI_FIELDS = (
+    "total_revenue",
+    "total_expenses",
+    "net_cash_flow",
+    "burn_rate",
+    "runway_months",
+    "gross_margin_pct",
+    "operating_margin_pct",
+    "revenue_growth_pct",
+)
+
+
+def snapshot_states(snapshot: KpiSnapshot, kpis: KpiValues) -> bool:
+    """Whether a stored snapshot still states exactly what we just computed.
+
+    Compared at money precision (2 dp, the column precision) so a round-trip
+    through the DB doesn't count as a difference. A None on one side and a
+    number on the other is a difference — an undefined runway is not a runway.
+    """
+    for field in _KPI_FIELDS:
+        stored = getattr(snapshot, field)
+        fresh = getattr(kpis, field)
+        if (stored is None) != (fresh is None):
+            return False
+        if stored is not None and quantize_money(Decimal(str(stored))) != (
+            quantize_money(Decimal(str(fresh)))
+        ):
+            return False
+    return True
+
+
+async def snapshot_for_period(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    period_start: dt.date,
+    period_end: dt.date,
+    kpis: KpiValues | None = None,
+) -> KpiSnapshot:
+    """The `kpi_snapshots` row that currently states a company's figures for a
+    period — reused if one already does, generated if not.
+
+    Reuses the newest stored snapshot for the same company + period, but **only
+    if it still agrees with what the engine computes now**. A stale snapshot
+    (data was added since it was generated) would make anything referencing it —
+    a saved scenario's `baseline_kpi_snapshot_id`, an answer's
+    `kpi_context_snapshot_id` — point at figures that were never used, so in
+    that case a fresh one is generated instead.
+
+    Pass `kpis` when the caller has already computed them for the same period,
+    to avoid aggregating twice.
+    """
+    if kpis is None:
+        kpis = await compute_period_kpis(db, company_id, period_start, period_end)
+
+    existing = (
+        await db.execute(
+            select(KpiSnapshot)
+            .where(
+                KpiSnapshot.company_id == company_id,
+                KpiSnapshot.period_start == period_start,
+                KpiSnapshot.period_end == period_end,
+            )
+            .order_by(KpiSnapshot.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if existing is not None and snapshot_states(existing, kpis):
+        return existing
+    return await generate_kpi_snapshot(db, company_id, period_start, period_end)
+
+
 async def list_kpi_snapshots(
     db: AsyncSession, company_id: uuid.UUID
 ) -> list[KpiSnapshot]:
@@ -199,10 +291,15 @@ async def list_kpi_snapshots(
 # --- Historical performance / 12-month view (task 4.4, FR-3.5 / FR-4.6) ---
 
 
-async def _latest_transaction_month(
+async def latest_transaction_month(
     db: AsyncSession, company_id: uuid.UUID
 ) -> tuple[int, int] | None:
-    """The (year, month) of the company's most recent transaction, or None."""
+    """The (year, month) of the company's most recent transaction, or None.
+
+    Public because it is what "the last 12 months" anchors on everywhere — the
+    dashboard's history series, a scenario's baseline period and the AI CFO's
+    context window all mean *the last 12 months of available data*, so they must
+    resolve it the same way."""
     result = await db.execute(
         select(func.max(Transaction.date)).where(
             Transaction.company_id == company_id
@@ -227,7 +324,7 @@ async def company_history(
     window's transactions are loaded, then bucketed deterministically."""
     if end_month is None:
         today = dt.date.today()
-        end_month = await _latest_transaction_month(db, company_id) or (
+        end_month = await latest_transaction_month(db, company_id) or (
             today.year,
             today.month,
         )

@@ -1,9 +1,10 @@
-"""AI CFO chat endpoints (task 7.1, FR-6.1).
+"""AI CFO chat endpoints (tasks 7.1–7.2).
 
-The conversational interface and its persistence. **No LLM is called yet** —
-asking a question stores the question and a clearly-labelled placeholder answer
-(see `ai_cfo.service`); context assembly (7.2), the system prompt (7.3) and the
-provider (7.4) come next.
+The conversational interface, its persistence, and the KPI context an answer is
+grounded in. **No LLM is called yet** — asking a question stores the question
+and a clearly-labelled placeholder answer (see `ai_cfo.service`), now carrying
+the id of the snapshot the real answer will be built from; the system prompt
+(7.3) and the provider (7.4) come next.
 
 Every route requires a session and is scoped to a company the caller owns,
 answering 404 rather than 403 so existence isn't leaked.
@@ -16,15 +17,19 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_cfo import context as context_module
 from app.ai_cfo import service
 from app.ai_cfo.models import ChatSession
 from app.ai_cfo.schemas import (
+    ChatContextRead,
     ChatMessageCreate,
     ChatMessageRead,
     ChatSessionCreate,
     ChatSessionDetail,
     ChatSessionRead,
     ChatTurnRead,
+    CfoContextRead,
+    FigureRead,
 )
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -128,7 +133,8 @@ async def post_message(
 
     **Until 7.4 the answer is a fixed placeholder** that states the assistant
     isn't connected and quotes no figures. It is not, and must not be mistaken
-    for, financial output.
+    for, financial output. From 7.2 the assistant turn does carry
+    `kpi_context_snapshot_id` — the figures the real answer will be built from.
     """
     session = await _require_session(session_id, current_user, db)
     user_message, assistant_message = await service.post_message(
@@ -149,3 +155,51 @@ async def delete_session(
     """Delete a conversation and its messages. Financial data is untouched."""
     session = await _require_session(session_id, current_user, db)
     await service.delete_session(db, session)
+
+
+@router.get("/context", response_model=ChatContextRead)
+async def get_context(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChatContextRead:
+    """Exactly what the AI CFO is given about this company (7.2, FR-6.2).
+
+    This endpoint exists so the boundary in architecture §4.1 can be *seen*
+    rather than taken on trust: every number in the response is a stored
+    `kpi_snapshots` value, and no transaction appears anywhere in it. The
+    assistant's answers quote from this and nothing else.
+
+    A company with no transactions yet has no computed figures — that answers
+    200 with `available: false`, because having entered no data is a normal
+    state, not a missing resource.
+    """
+    await _require_company(company_id, current_user, db)
+    assembled = await service.build_context(db, company_id)
+    if assembled is None:
+        return ChatContextRead(
+            company_id=company_id,
+            available=False,
+            unavailable_reason=(
+                "No transactions have been recorded for this company yet, so "
+                "there are no calculated figures for the assistant to work "
+                "from. Upload a statement or add entries manually first."
+            ),
+        )
+    return ChatContextRead(
+        company_id=company_id,
+        available=True,
+        context=CfoContextRead(
+            company_id=assembled.company_id,
+            company_name=assembled.company_name,
+            industry=assembled.industry,
+            currency=assembled.currency,
+            period_start=assembled.period_start,
+            period_end=assembled.period_end,
+            num_months=assembled.num_months,
+            snapshot_id=assembled.snapshot_id,
+            computed_at=assembled.computed_at,
+            figures=[FigureRead(**vars(f)) for f in assembled.figures],
+            rendered=context_module.render(assembled),
+        ),
+    )

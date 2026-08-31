@@ -1,10 +1,15 @@
-"""AI CFO chat service (task 7.1, FR-6.1) — sessions and message history.
+"""AI CFO chat service (tasks 7.1–7.2) — sessions, history and KPI context.
 
-**No LLM is called here yet.** 7.1 is deliberately the interface and its
-persistence: the chat screen, the two tables, and owner-scoped access. What
-makes an answer *useful* arrives in the tasks after it — context assembly from
-`kpi_snapshots` (7.2), the plain-language system prompt and advisory disclaimer
-(7.3), and the swappable provider (7.4).
+**No LLM is called here yet.** 7.1 built the interface and its persistence (the
+chat screen, the two tables, owner-scoped access); 7.2 adds the context the
+model will be given. What remains is the plain-language system prompt and
+advisory disclaimer (7.3) and the swappable provider (7.4).
+
+**Context assembly (7.2, FR-6.2 / architecture §4.1).** Before an answer is
+produced, `build_context` resolves the company's current KPI snapshot and turns
+it into the block in `ai_cfo/context.py`. The snapshot's id is stored on the
+assistant turn, so every answer can be traced back to the exact figures behind
+it. Raw transactions are never part of that context — see the context module.
 
 **The placeholder reply (decided in 7.1).** A question still has to produce an
 assistant turn, otherwise the conversation is one-sided and neither the UI nor
@@ -13,29 +18,36 @@ fixed, clearly-labelled placeholder. It is deliberately inert: it states that
 the assistant isn't connected yet, and it contains **no figures, no advice and
 no reference to the company's data**. Storing a plausible-sounding stub answer
 would be far worse than storing an obviously unfinished one — a demo could show
-it and a reader could believe it. 7.4 replaces `answer_question` with the real
-provider call; nothing else in this module changes.
+it and a reader could believe it. 7.4 replaces the reply itself with a real
+provider call, fed the context 7.2 already assembles.
 """
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai_cfo.context import CfoContext, from_snapshot
 from app.ai_cfo.models import ROLE_ASSISTANT, ROLE_USER, ChatMessage, ChatSession
 from app.companies.models import Company
+from app.financial_engine.calculations import month_range
+from app.financial_engine.service import (
+    latest_transaction_month,
+    snapshot_for_period,
+)
 
 # The stub answer. No numbers, no advice — see the module docstring.
 PLACEHOLDER_REPLY = (
     "The AI CFO isn't connected yet, so I can't answer that one properly.\n\n"
-    "What's working right now is the conversation itself — your question was "
-    "saved and this history will still be here when you come back. Answering "
-    "with your actual figures needs three more pieces: reading your "
-    "precomputed KPIs as context, the plain-language prompt, and the model "
-    "connection.\n\n"
+    "What's working is the conversation itself and the figures behind it — "
+    "your question was saved, and this reply is already tied to the exact set "
+    "of precomputed KPIs the assistant will be handed. You can see that set "
+    "yourself under \u201cWhat the assistant can see\u201d. Two pieces are "
+    "left: the plain-language prompt, and the model connection.\n\n"
     "When it does answer, every figure it quotes will be one the Financial "
     "Engine calculated — it never works numbers out for itself. And it will "
     "never be a substitute for a licensed financial professional."
@@ -154,16 +166,73 @@ async def session_summaries(
     return {sid: (counts.get(sid, 0), first.get(sid)) for sid in session_ids}
 
 
-def answer_question(question: str) -> tuple[str, uuid.UUID | None]:
+# The context window: the last 12 months *of available data*, the same window
+# the dashboard's history series and a scenario's baseline use. Answers that
+# quoted a different period from the one on screen would be indefensible even
+# when both were right.
+CONTEXT_MONTHS = 12
+
+
+def context_period(
+    end_month: tuple[int, int], months: int = CONTEXT_MONTHS
+) -> tuple[dt.date, dt.date]:
+    """The `[start, end]` dates of the `months`-long window ending at
+    `end_month`, aligned to whole calendar months."""
+    window = month_range(end_month[0], end_month[1], months)
+    start_year, start_mo = window[0]
+    end_year, end_mo = end_month
+    last_day = calendar.monthrange(end_year, end_mo)[1]
+    return dt.date(start_year, start_mo, 1), dt.date(end_year, end_mo, last_day)
+
+
+async def build_context(
+    db: AsyncSession, company_id: uuid.UUID
+) -> CfoContext | None:
+    """Assemble what the AI CFO is given about a company (7.2, FR-6.2).
+
+    Resolves the current KPI snapshot for the company's last 12 months of data
+    and renders it via `ai_cfo.context`. Returns `None` when the company has no
+    transactions at all — with nothing computed there is nothing to ground an
+    answer in, and inventing a snapshot of zeros would hand the model a set of
+    figures that look like findings ("your revenue is ₹0") rather than an
+    absence of data.
+
+    `snapshot_for_period` reuses the stored snapshot while it still states the
+    current figures, so a long conversation doesn't write a new row per
+    question, but recording transactions mid-conversation does move later
+    answers onto fresh figures.
+    """
+    company = await db.get(Company, company_id)
+    if company is None:
+        return None
+
+    end_month = await latest_transaction_month(db, company_id)
+    if end_month is None:
+        return None
+
+    period_start, period_end = context_period(end_month)
+    snapshot = await snapshot_for_period(db, company_id, period_start, period_end)
+    return from_snapshot(company, snapshot)
+
+
+async def answer_question(
+    db: AsyncSession, company_id: uuid.UUID, question: str
+) -> tuple[str, uuid.UUID | None]:
     """Produce the assistant's reply and the KPI snapshot it was grounded in.
 
-    **7.1 stub** — returns the fixed placeholder and no snapshot. The signature
-    is the one the real implementation needs, so 7.2–7.4 fill this in without
-    disturbing `post_message` or the router. `question` is unused for now and
-    deliberately not inspected: guessing at intent here would be the beginning
-    of the assistant reasoning about finances on its own.
+    **7.2** assembles the context and records which snapshot it came from; the
+    reply itself is still the fixed placeholder until the provider lands in 7.4.
+    That split is deliberate — attaching the right snapshot is verifiable on its
+    own, and it means the audit trail is already correct before there is any
+    generated text to audit.
+
+    `question` is deliberately not inspected. Branching on what was asked —
+    picking a different period for a runway question, say — would be the
+    assistant starting to reason about finances on its own, and the context is
+    small enough that it can simply always carry everything.
     """
-    return PLACEHOLDER_REPLY, None
+    context = await build_context(db, company_id)
+    return PLACEHOLDER_REPLY, None if context is None else context.snapshot_id
 
 
 async def post_message(
@@ -181,7 +250,7 @@ async def post_message(
         content=content,
         created_at=asked_at,
     )
-    reply, snapshot_id = answer_question(content)
+    reply, snapshot_id = await answer_question(db, session.company_id, content)
     assistant_message = ChatMessage(
         session_id=session.id,
         role=ROLE_ASSISTANT,

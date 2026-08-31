@@ -128,7 +128,8 @@ async def test_placeholder_answer_quotes_no_figures(client: AsyncClient):
     assert "₹" not in reply["content"]
     assert "%" not in reply["content"]
     assert not any(ch.isdigit() for ch in reply["content"])
-    # No context was assembled yet — that's 7.2.
+    # This company has no transactions, so there are no computed figures to be
+    # grounded in. Context assembly itself is covered in test_ai_context.py.
     assert reply["kpi_context_snapshot_id"] is None
 
 

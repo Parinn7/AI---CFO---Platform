@@ -30,13 +30,11 @@ from app.financial_engine.calculations import (
     KpiValues,
     compute_kpis,
     months_in_period,
-    quantize_money,
 )
-from app.financial_engine.models import KpiSnapshot
 from app.financial_engine.service import (
     company_totals,
-    generate_kpi_snapshot,
     previous_window,
+    snapshot_for_period,
 )
 from app.scenarios.models import Scenario
 from app.scenarios.schemas import (
@@ -210,73 +208,6 @@ def simulation_payload(
     )
 
 
-# The KPI columns a snapshot and a computed baseline must agree on to be
-# considered the same measurement.
-_KPI_FIELDS = (
-    "total_revenue",
-    "total_expenses",
-    "net_cash_flow",
-    "burn_rate",
-    "runway_months",
-    "gross_margin_pct",
-    "operating_margin_pct",
-    "revenue_growth_pct",
-)
-
-
-def _same_kpis(snapshot: KpiSnapshot, kpis: KpiValues) -> bool:
-    """Whether a stored snapshot still states exactly what we just computed.
-
-    Compared at money precision (2 dp, the column precision) so a round-trip
-    through the DB doesn't count as a difference. A None on one side and a
-    number on the other is a difference — an undefined runway is not a runway.
-    """
-    for field in _KPI_FIELDS:
-        stored = getattr(snapshot, field)
-        fresh = getattr(kpis, field)
-        if (stored is None) != (fresh is None):
-            return False
-        if stored is not None and quantize_money(Decimal(str(stored))) != (
-            quantize_money(Decimal(str(fresh)))
-        ):
-            return False
-    return True
-
-
-async def _baseline_snapshot(
-    db: AsyncSession,
-    company_id: uuid.UUID,
-    period_start: dt.date,
-    period_end: dt.date,
-    baseline: KpiValues,
-) -> KpiSnapshot:
-    """The `kpi_snapshots` row a saved scenario points at (schema §7).
-
-    Reuses the newest stored snapshot for the same company + period, but **only
-    if it still agrees with the baseline we just computed**. A stale snapshot
-    (data was added since it was generated) would make
-    `baseline_kpi_snapshot_id` point at figures the saved comparison never used,
-    so in that case a fresh one is generated instead. Either way the row the
-    scenario references and the `result.baseline` block state the same numbers.
-    """
-    existing = (
-        await db.execute(
-            select(KpiSnapshot)
-            .where(
-                KpiSnapshot.company_id == company_id,
-                KpiSnapshot.period_start == period_start,
-                KpiSnapshot.period_end == period_end,
-            )
-            .order_by(KpiSnapshot.created_at.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-
-    if existing is not None and _same_kpis(existing, baseline):
-        return existing
-    return await generate_kpi_snapshot(db, company_id, period_start, period_end)
-
-
 async def save_scenario(
     db: AsyncSession,
     company_id: uuid.UUID,
@@ -297,7 +228,10 @@ async def save_scenario(
     result = await simulate_scenario(
         db, company_id, period_start, period_end, assumptions
     )
-    snapshot = await _baseline_snapshot(
+    # Reuses a stored snapshot only while it still agrees with the baseline we
+    # just computed, so `baseline_kpi_snapshot_id` never points at figures the
+    # saved comparison didn't use.
+    snapshot = await snapshot_for_period(
         db, company_id, period_start, period_end, result.baseline
     )
     payload = simulation_payload(company_id, assumptions, result)

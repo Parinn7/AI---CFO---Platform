@@ -662,15 +662,16 @@ export function deleteScenario(id: string, token: string): Promise<void> {
   return apiDelete(`/api/v1/scenarios/${id}`, token);
 }
 
-// --- AI CFO chat (7.1, FR-6.1) ---
+// --- AI CFO chat (7.1–7.2, FR-6.1 / FR-6.2) ---
 
 export type ChatMessage = {
   id: string;
   session_id: string;
   role: "user" | "assistant";
   content: string;
-  /** Which precomputed KPI snapshot the assistant was given for this turn —
-   * null for user turns, and for every turn until context assembly (7.2). */
+  /** Which precomputed KPI snapshot the assistant was given for this turn
+   * (7.2) — null for user turns, and when the company has no transactions yet
+   * and so no calculated figures to be grounded in. */
   kpi_context_snapshot_id: string | null;
   created_at: string;
 };
@@ -746,4 +747,53 @@ export function postChatMessage(
 
 export function deleteChatSession(id: string, token: string): Promise<void> {
   return apiDelete(`/api/v1/chat/sessions/${id}`, token);
+}
+
+/** One precomputed figure as the assistant receives it. `value` is already
+ * rendered by the backend (including "Not applicable" and why), so the screen
+ * and the model are looking at the same words. */
+export type ContextFigure = {
+  key: string;
+  label: string;
+  value: string;
+  meaning: string;
+  note: string;
+};
+
+/** Everything the AI CFO is given about a company for one answer (FR-6.2).
+ * Every number in it is a stored `kpi_snapshots` value; no transaction appears
+ * anywhere — that boundary is architecture §4.1. */
+export type CfoContext = {
+  company_id: string;
+  company_name: string;
+  industry: string | null;
+  currency: string;
+  period_start: string;
+  period_end: string;
+  num_months: number;
+  snapshot_id: string;
+  computed_at: string;
+  figures: ContextFigure[];
+  rendered: string;
+};
+
+/** A company with no transactions has no computed figures — a normal state, so
+ * it comes back as `available: false` with a readable reason, not an error. */
+export type ChatContext = {
+  company_id: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  context: CfoContext | null;
+};
+
+/** Exactly what the assistant can see. Fetched so the user can read it too —
+ * an assistant whose inputs are inspectable is one you can argue with. */
+export function getChatContext(
+  companyId: string,
+  token: string,
+): Promise<ChatContext> {
+  return apiGet<ChatContext>(
+    `/api/v1/chat/context?company_id=${companyId}`,
+    token,
+  );
 }

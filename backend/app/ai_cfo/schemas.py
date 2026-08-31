@@ -1,4 +1,4 @@
-"""Pydantic schemas for the AI CFO chat (task 7.1, FR-6.1)."""
+"""Pydantic schemas for the AI CFO chat (tasks 7.1–7.2)."""
 
 from __future__ import annotations
 
@@ -35,8 +35,9 @@ class ChatMessageCreate(BaseModel):
 
 class ChatMessageRead(BaseModel):
     """One turn. `kpi_context_snapshot_id` names the precomputed KPI snapshot
-    the assistant was given for this turn — null for user turns, and for every
-    turn until context assembly lands in 7.2."""
+    the assistant was given for this turn (7.2) — null for user turns, and for
+    an assistant turn about a company with no transactions yet, where there are
+    no computed figures to be grounded in."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -83,3 +84,54 @@ class ChatTurnRead(BaseModel):
 
     user_message: ChatMessageRead
     assistant_message: ChatMessageRead
+
+
+# --- Assembled context (task 7.2, FR-6.2) ---
+
+
+class FigureRead(BaseModel):
+    """One precomputed figure as the assistant receives it: the rendered value,
+    what it measures, and the caveat attached to this company's value."""
+
+    key: str
+    label: str
+    value: str
+    meaning: str
+    note: str
+
+
+class CfoContextRead(BaseModel):
+    """Everything the AI CFO is given about a company for one answer (FR-6.2).
+
+    Exposed rather than kept internal because it is the evidence for
+    architecture §4.1: you can read exactly what the model gets, confirm every
+    number in it is a stored `kpi_snapshots` value, and see that no transaction
+    ever appears. `rendered` is the literal text block that goes into the
+    prompt.
+    """
+
+    company_id: uuid.UUID
+    company_name: str
+    industry: str | None
+    currency: str
+    period_start: dt.date
+    period_end: dt.date
+    num_months: int
+    snapshot_id: uuid.UUID
+    computed_at: dt.datetime
+    figures: list[FigureRead]
+    rendered: str
+
+
+class ChatContextRead(BaseModel):
+    """The context for a company, or a plain statement of why there isn't one.
+
+    A company with no transactions has no computed figures, and that is a
+    normal state rather than an error — so it answers 200 with
+    `available: false` and a reason a person can read, not a 404.
+    """
+
+    company_id: uuid.UUID
+    available: bool
+    unavailable_reason: str | None = None
+    context: CfoContextRead | None = None

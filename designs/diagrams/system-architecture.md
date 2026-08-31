@@ -103,7 +103,7 @@ The system follows a standard three-tier architecture with an integrated AI laye
 
 This is the piece that turns "just call an LLM API" into something reliable:
 
-1. **Context assembly** — before calling the LLM, the backend assembles a structured context: relevant KPIs, recent transactions summary, active scenarios, and the user's question. This is built server-side, not left to the frontend.
+1. **Context assembly** — before calling the LLM, the backend assembles a structured context from the company's precomputed KPIs. This is built server-side, not left to the frontend. **Narrowed in 7.2 to `kpi_snapshots` only** — the original sketch above this line also listed a "recent transactions summary" and active scenarios; the transaction summary was dropped because §4.1 is easier to hold as an absolute than as a rule with exceptions (any transaction-shaped input is an invitation for the model to aggregate it), and scenarios were left out because a saved scenario is a hypothetical, not a fact about the business. Non-numeric company facts (name, industry) do come from `companies` — "you're a SaaS business" changes how a figure should be explained without being a figure.
 2. **Prompt construction** — a system prompt defines the AI CFO's role, tone (plain language, non-technical), and constraints (must reference actual data, must include the "not a licensed financial advisor" disclaimer where relevant).
 3. **LLM call** — sent to OpenAI or Gemini (configurable provider, behind an interface so switching providers doesn't require rewriting the feature).
 4. **Response handling** — response is stored in `ChatMessage` history tied to the company/session, so conversations persist and can reference prior turns.
@@ -118,6 +118,7 @@ This is a non-negotiable architectural boundary, not a style preference:
 - **The LLM never performs arithmetic on financial data.** It receives already-computed numbers as context and is only used to interpret, explain, or narrate them in plain language.
 - This exists because LLMs are unreliable at precise arithmetic over large/complex numeric data — which is one of the core reasons this platform exists instead of just pointing users at ChatGPT. A tool that gets a founder's runway calculation wrong has no value.
 - In practice: the AI CFO Orchestrator's prompt should always include pre-computed figures (e.g., "Runway: 7.2 months, Burn rate: ₹4.1L/month") rather than raw transaction data and a request to "calculate the runway." If a user's question requires a number that hasn't been pre-computed, the correct flow is: Financial Engine computes it first → result is passed to the LLM to explain, never the LLM computing it live.
+- **As implemented (7.2):** `app/ai_cfo/context.py` is pure and DB-free (like `financial_engine/calculations.py`) and reads *one* `kpi_snapshots` row. It never touches `transactions` — the module has no import path to them. `GET /api/v1/chat/context?company_id=` returns exactly what the model is given, including the rendered prompt block, and `/chat` shows it under **"What the assistant can see"**, so the boundary is something a reader can check rather than take on trust. A test plants a transaction with a distinctive description and asserts it appears nowhere in the assembled context.
 
 ## 5. Data Flow (Key Scenarios)
 

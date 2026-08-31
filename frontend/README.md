@@ -167,17 +167,36 @@ state; a lever at 0 comes back **blank**, because blank is how this form spells
 Decimal fields as strings (`ScenarioAssumptionsRead`), like every other figure
 the API returns — coerce, don't assume.
 
-## AI CFO chat (Phase 7.1)
+## AI CFO chat (Phase 7.1–7.2)
 
 `/chat` (auth-guarded, linked from the dashboard and `/scenarios`) is the
 conversational interface (FR-6.1): a conversation list, a transcript, and a
 composer. Conversations persist and reopen where you left off.
 
-**It is honest that it isn't finished.** 7.1 is the interface and its
-persistence — no model is connected — so the page carries a "Not connected yet"
-notice and the assistant replies with a placeholder that quotes no figures. A
-screen that looked like a working assistant and simply gave poor answers would
-be worse than one that says what it is.
+**It is honest that it isn't finished.** No model is connected yet — the page
+carries a "Not connected yet" notice and the assistant replies with a
+placeholder that quotes no figures. A screen that looked like a working
+assistant and simply gave poor answers would be worse than one that says what it
+is.
+
+**"What the assistant can see" (7.2, FR-6.2).** A collapsed panel under the
+composer shows the exact set of precomputed figures an answer is built from —
+fetched on load via `getChatContext`, so it's populated before anything is
+asked. It's on the screen rather than hidden in the backend because architecture
+§4.1 (*the AI never calculates*) is a claim a reader should be able to check:
+every number in the panel is a stored `kpi_snapshots` value, and no transaction
+appears in it at all.
+
+- **The figures are rendered by the backend and shown verbatim**, including the
+  "Not applicable" cases and the reason each is undefined. Reformatting them
+  here would mean the screen and the model were reading different words for the
+  same number — exactly what the panel exists to rule out. (`app/core/formatting.py`
+  mirrors `lib/format.ts` for this reason.)
+- **A stale panel refetches itself**: if an answer comes back tagged with a
+  different snapshot than the panel is showing — data changed in another tab —
+  the panel would be claiming the assistant saw figures it didn't.
+- **No data yet is a sentence, not an error** — `available: false` renders the
+  reason plus a link to `/data`.
 
 Details it gets right:
 

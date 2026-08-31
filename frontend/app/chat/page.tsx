@@ -1,13 +1,19 @@
 /**
- * AI CFO chat (Phase 7.1, FR-6.1). Auth-guarded. A conversational interface for
- * asking questions about the company's finances, with conversations saved and
- * revisitable.
+ * AI CFO chat (Phase 7.1–7.2, FR-6.1 / FR-6.2). Auth-guarded. A conversational
+ * interface for asking questions about the company's finances, with
+ * conversations saved and revisitable.
  *
- * **7.1 is the interface and its persistence — no model is connected yet.** The
- * assistant returns a fixed placeholder that quotes no figures; the pieces that
- * make an answer useful land next (KPI context 7.2, system prompt 7.3, provider
- * 7.4). The screen says so plainly rather than looking like a working assistant
- * that happens to be unhelpful.
+ * **No model is connected yet.** The assistant returns a fixed placeholder that
+ * quotes no figures; the system prompt (7.3) and the provider (7.4) land next.
+ * The screen says so plainly rather than looking like a working assistant that
+ * happens to be unhelpful.
+ *
+ * **"What the assistant can see" (7.2).** The context panel shows the exact set
+ * of precomputed figures an answer is built from. It's on this screen, and not
+ * hidden in the backend, because architecture §4.1 — the AI never calculates —
+ * is a claim a reader should be able to check rather than take on trust: every
+ * number in the panel is a stored `kpi_snapshots` value, and no transaction
+ * appears in it at all.
  *
  * The advisory disclaimer (FR-6.5) is shown from the start. It belongs to 7.3
  * as a *system-prompt* concern, but a screen that renders assistant-labelled
@@ -22,14 +28,17 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { monthLong } from "@/lib/format";
 import {
   ApiError,
   createChatSession,
   deleteChatSession,
+  getChatContext,
   getChatSession,
   listChatSessions,
   listCompanies,
   postChatMessage,
+  type ChatContext,
   type ChatMessage,
   type ChatSession,
   type Company,
@@ -52,6 +61,7 @@ export default function ChatPage() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [context, setContext] = useState<ChatContext | null>(null);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -69,8 +79,15 @@ export default function ChatPage() {
       const co = (await listCompanies(token))[0] ?? null;
       setCompany(co);
       if (!co) return;
-      const list = await listChatSessions(co.id, token);
+      // The figures an answer would be grounded in (7.2). Fetched here so the
+      // panel is populated before anything is asked — what the assistant can
+      // see doesn't depend on having asked it something.
+      const [list, ctx] = await Promise.all([
+        listChatSessions(co.id, token),
+        getChatContext(co.id, token),
+      ]);
       setSessions(list);
+      setContext(ctx);
       // Reopen the most recent conversation, so returning to the page picks up
       // where the user left off rather than staring at a blank screen.
       if (list.length > 0) {
@@ -127,6 +144,14 @@ export default function ChatPage() {
             : s,
         ),
       );
+
+      // If the answer was grounded in a different snapshot than the panel is
+      // showing — data changed in another tab, say — the panel is stale and
+      // would be claiming the assistant saw figures it didn't.
+      const used = turn.assistant_message.kpi_context_snapshot_id;
+      if (used && used !== context?.context?.snapshot_id) {
+        setContext(await getChatContext(company.id, token));
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't send that message.");
     } finally {
@@ -196,12 +221,13 @@ export default function ChatPage() {
         </nav>
       </header>
 
-      {/* Honest about what this does today (7.1 of 7.4). */}
+      {/* Honest about what this does today (7.2 of 7.4). */}
       <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
         <strong className="font-medium">Not connected yet.</strong> The
-        conversation and its history are working, but the assistant can&apos;t
-        answer with your figures until the remaining pieces are built. It will
-        reply with a placeholder for now.
+        conversation, its history and the figures behind it are working — you
+        can see exactly what the assistant would be given below. The language
+        model itself isn&apos;t wired up, so it replies with a placeholder for
+        now.
       </p>
 
       {error && (
@@ -343,6 +369,8 @@ export default function ChatPage() {
               </button>
             </form>
 
+            {context && <ContextPanel context={context} />}
+
             {/* FR-6.5 — shown wherever assistant-labelled text is rendered. */}
             <p className="text-xs text-black/50 dark:text-white/50">
               The AI CFO explains your figures — it never calculates them, and
@@ -352,6 +380,75 @@ export default function ChatPage() {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * What the assistant can see (7.2, FR-6.2). Collapsed by default — it's
+ * evidence, not the main event — but present on every visit.
+ *
+ * The figures are rendered by the backend and shown verbatim, including the
+ * "Not applicable" cases and the reason each one is undefined. Reformatting
+ * them here would mean the screen and the model were reading different words
+ * for the same thing, which is exactly what this panel exists to rule out.
+ */
+function ContextPanel({ context }: { context: ChatContext }) {
+  const ctx = context.context;
+
+  return (
+    <details className="rounded-lg border border-black/10 dark:border-white/15">
+      <summary className="cursor-pointer select-none px-3.5 py-2.5 text-xs font-medium hover:bg-black/[0.03] dark:hover:bg-white/[0.04] rounded-lg transition-colors">
+        What the assistant can see
+        <span className="ml-2 font-normal text-black/45 dark:text-white/45">
+          {ctx
+            ? `${ctx.figures.length} calculated figures · ${monthLong(
+                ctx.period_start.slice(0, 7),
+              )} – ${monthLong(ctx.period_end.slice(0, 7))}`
+            : "nothing yet"}
+        </span>
+      </summary>
+
+      <div className="border-t border-black/10 dark:border-white/15 px-3.5 py-3">
+        {!ctx ? (
+          <p className="text-xs text-black/60 dark:text-white/60">
+            {context.unavailable_reason}{" "}
+            <Link href="/data" className="underline hover:no-underline">
+              Add your data
+            </Link>
+            .
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-black/60 dark:text-white/60">
+              These are the only numbers the assistant is given, and it is never
+              asked to work any of them out. Each one was calculated by the
+              Financial Engine and stored — the same figures the dashboard
+              shows. Your individual transactions are never sent.
+            </p>
+            <dl className="mt-3 grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+              {ctx.figures.map((f) => (
+                <div key={f.key}>
+                  <dt className="text-[0.7rem] uppercase tracking-wide text-black/45 dark:text-white/45">
+                    {f.label}
+                  </dt>
+                  <dd className="text-sm font-medium">{f.value}</dd>
+                  {f.note && (
+                    <dd className="text-xs text-black/50 dark:text-white/50">
+                      {f.note}
+                    </dd>
+                  )}
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-[0.7rem] text-black/40 dark:text-white/40">
+              Snapshot {ctx.snapshot_id.slice(0, 8)}, calculated{" "}
+              {new Date(ctx.computed_at).toLocaleDateString()}. Covers{" "}
+              {ctx.num_months} months of your recorded data.
+            </p>
+          </>
+        )}
+      </div>
+    </details>
   );
 }
 
