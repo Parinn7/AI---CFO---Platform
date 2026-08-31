@@ -797,3 +797,27 @@ export function getChatContext(
     token,
   );
 }
+
+/** The standing instructions the assistant answers under (7.3, FR-6.3/FR-6.5).
+ * `system_prompt` is the stable half — identical for every company;
+ * `system_message` is the literal message sent, those instructions followed by
+ * this company's figure block (or by one saying it has none). */
+export type ChatPrompt = {
+  company_id: string;
+  system_prompt: string;
+  system_message: string;
+  max_history_messages: number;
+};
+
+/** Fetched so the rules can be read, not just claimed — the companion to
+ * `getChatContext`: what the assistant is given, and what it's told to do with
+ * it. */
+export function getChatPrompt(
+  companyId: string,
+  token: string,
+): Promise<ChatPrompt> {
+  return apiGet<ChatPrompt>(
+    `/api/v1/chat/prompt?company_id=${companyId}`,
+    token,
+  );
+}

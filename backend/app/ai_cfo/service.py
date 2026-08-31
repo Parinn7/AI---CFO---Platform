@@ -1,9 +1,9 @@
-"""AI CFO chat service (tasks 7.1–7.2) — sessions, history and KPI context.
+"""AI CFO chat service (tasks 7.1–7.3) — sessions, history, context, prompt.
 
 **No LLM is called here yet.** 7.1 built the interface and its persistence (the
-chat screen, the two tables, owner-scoped access); 7.2 adds the context the
-model will be given. What remains is the plain-language system prompt and
-advisory disclaimer (7.3) and the swappable provider (7.4).
+chat screen, the two tables, owner-scoped access); 7.2 added the context the
+model is given; 7.3 added the instructions it is given with it (`prompt.py`).
+What remains is the provider call itself (7.4).
 
 **Context assembly (7.2, FR-6.2 / architecture §4.1).** Before an answer is
 produced, `build_context` resolves the company's current KPI snapshot and turns
@@ -19,20 +19,30 @@ the assistant isn't connected yet, and it contains **no figures, no advice and
 no reference to the company's data**. Storing a plausible-sounding stub answer
 would be far worse than storing an obviously unfinished one — a demo could show
 it and a reader could believe it. 7.4 replaces the reply itself with a real
-provider call, fed the context 7.2 already assembles.
+provider call, fed the messages `build_prompt` already assembles.
+
+**Placeholder turns are not replayed into the prompt.** Every conversation
+started before 7.4 holds assistant turns saying the assistant isn't connected.
+Feeding those back would teach the model that it had already refused to help
+and invite it to keep doing so — so `replayable_history` drops them. Dropping
+them is safe precisely because they are inert: nothing was said that a later
+answer could need.
 """
 
 from __future__ import annotations
 
 import calendar
 import datetime as dt
+import logging
 import uuid
+from typing import Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_cfo.context import CfoContext, from_snapshot
 from app.ai_cfo.models import ROLE_ASSISTANT, ROLE_USER, ChatMessage, ChatSession
+from app.ai_cfo.prompt import PromptMessage, build_messages
 from app.companies.models import Company
 from app.financial_engine.calculations import month_range
 from app.financial_engine.service import (
@@ -40,14 +50,16 @@ from app.financial_engine.service import (
     snapshot_for_period,
 )
 
+logger = logging.getLogger(__name__)
+
 # The stub answer. No numbers, no advice — see the module docstring.
 PLACEHOLDER_REPLY = (
     "The AI CFO isn't connected yet, so I can't answer that one properly.\n\n"
-    "What's working is the conversation itself and the figures behind it — "
-    "your question was saved, and this reply is already tied to the exact set "
-    "of precomputed KPIs the assistant will be handed. You can see that set "
-    "yourself under \u201cWhat the assistant can see\u201d. Two pieces are "
-    "left: the plain-language prompt, and the model connection.\n\n"
+    "Everything around the answer is ready: your question was saved, this "
+    "reply is tied to the exact set of precomputed figures the assistant will "
+    "be handed, and the instructions it will follow are written. You can read "
+    "both in the panel below. The one piece left is the connection to the "
+    "language model itself.\n\n"
     "When it does answer, every figure it quotes will be one the Financial "
     "Engine calculated — it never works numbers out for itself. And it will "
     "never be a substitute for a licensed financial professional."
@@ -215,23 +227,70 @@ async def build_context(
     return from_snapshot(company, snapshot)
 
 
+def replayable_history(messages: Sequence[ChatMessage]) -> list[tuple[str, str]]:
+    """A conversation's turns as `(role, content)`, minus the ones that would
+    mislead the model if replayed.
+
+    Only the placeholder is dropped, and only because it is inert: it says the
+    assistant isn't connected and nothing else, so no later answer can depend on
+    it, while replaying it would show the model a transcript in which it had
+    already declined to help. Real answers are always replayed, including ones
+    that quoted figures since superseded — the system prompt tells the model
+    that only the current block is authoritative, which is the honest way to
+    handle it. Silently editing history would not be.
+    """
+    return [
+        (message.role, message.content)
+        for message in messages
+        if not (
+            message.role == ROLE_ASSISTANT and message.content == PLACEHOLDER_REPLY
+        )
+    ]
+
+
+async def build_prompt(
+    db: AsyncSession, session: ChatSession, question: str
+) -> tuple[tuple[PromptMessage, ...], CfoContext | None]:
+    """The complete request for one question (7.3), and the context behind it.
+
+    Returns both because the caller needs the context separately: its snapshot
+    id is what gets written to `chat_messages.kpi_context_snapshot_id`, and
+    digging it back out of the assembled text would be absurd.
+    """
+    context = await build_context(db, session.company_id)
+    history = replayable_history(await list_messages(db, session.id))
+    return build_messages(context, history, question), context
+
+
 async def answer_question(
-    db: AsyncSession, company_id: uuid.UUID, question: str
+    db: AsyncSession, session: ChatSession, question: str
 ) -> tuple[str, uuid.UUID | None]:
     """Produce the assistant's reply and the KPI snapshot it was grounded in.
 
-    **7.2** assembles the context and records which snapshot it came from; the
-    reply itself is still the fixed placeholder until the provider lands in 7.4.
-    That split is deliberate — attaching the right snapshot is verifiable on its
-    own, and it means the audit trail is already correct before there is any
-    generated text to audit.
+    Everything except the model call is done here: the context is assembled
+    (7.2), the prompt is built around it (7.3), and the snapshot id is recorded
+    on the turn. The reply itself stays the fixed placeholder until 7.4 swaps in
+    the provider — a deliberate split, since the audit trail is verifiable on
+    its own and is then already correct before there is any generated text to
+    audit.
 
-    `question` is deliberately not inspected. Branching on what was asked —
+    The prompt is assembled on every real question even though nothing sends it
+    yet. That costs a few string joins and buys the guarantee that 7.4 inherits
+    an assembly path already exercised against real conversations and real
+    figures, rather than one that has only ever seen tests.
+
+    `question` is passed through, never inspected. Branching on what was asked —
     picking a different period for a runway question, say — would be the
     assistant starting to reason about finances on its own, and the context is
     small enough that it can simply always carry everything.
     """
-    context = await build_context(db, company_id)
+    messages, context = await build_prompt(db, session, question)
+    logger.debug(
+        "Assembled %d prompt messages for session %s (snapshot %s)",
+        len(messages),
+        session.id,
+        None if context is None else context.snapshot_id,
+    )
     return PLACEHOLDER_REPLY, None if context is None else context.snapshot_id
 
 
@@ -250,7 +309,7 @@ async def post_message(
         content=content,
         created_at=asked_at,
     )
-    reply, snapshot_id = await answer_question(db, session.company_id, content)
+    reply, snapshot_id = await answer_question(db, session, content)
     assistant_message = ChatMessage(
         session_id=session.id,
         role=ROLE_ASSISTANT,

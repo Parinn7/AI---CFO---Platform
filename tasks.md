@@ -57,7 +57,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 ## Phase 7 — AI CFO Assistant
 - [x] **7.1** Chat UI + `chat_sessions`/`chat_messages` tables (FR-6.1).
 - [x] **7.2** Context assembly from `kpi_snapshots` only, never raw transactions (FR-6.2, architecture §4.1).
-- [ ] **7.3** System prompt: plain-language explanation + advisory disclaimer (FR-6.3, FR-6.5).
+- [x] **7.3** System prompt: plain-language explanation + advisory disclaimer (FR-6.3, FR-6.5).
 - [ ] **7.4** LLM provider integration behind a swappable interface (FR-6.4).
 
 ---

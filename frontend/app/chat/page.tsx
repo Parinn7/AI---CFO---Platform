@@ -1,24 +1,29 @@
 /**
- * AI CFO chat (Phase 7.1–7.2, FR-6.1 / FR-6.2). Auth-guarded. A conversational
- * interface for asking questions about the company's finances, with
- * conversations saved and revisitable.
+ * AI CFO chat (Phase 7.1–7.3, FR-6.1 / FR-6.2 / FR-6.3 / FR-6.5). Auth-guarded.
+ * A conversational interface for asking questions about the company's finances,
+ * with conversations saved and revisitable.
  *
  * **No model is connected yet.** The assistant returns a fixed placeholder that
- * quotes no figures; the system prompt (7.3) and the provider (7.4) land next.
- * The screen says so plainly rather than looking like a working assistant that
- * happens to be unhelpful.
+ * quotes no figures; the provider lands in 7.4. The screen says so plainly
+ * rather than looking like a working assistant that happens to be unhelpful.
  *
- * **"What the assistant can see" (7.2).** The context panel shows the exact set
- * of precomputed figures an answer is built from. It's on this screen, and not
- * hidden in the backend, because architecture §4.1 — the AI never calculates —
- * is a claim a reader should be able to check rather than take on trust: every
- * number in the panel is a stored `kpi_snapshots` value, and no transaction
- * appears in it at all.
+ * **Two disclosure panels, for the same reason.** *What the assistant can see*
+ * (7.2) is the exact set of precomputed figures an answer is built from; *the
+ * instructions it follows* (7.3) is the system prompt, verbatim. Both are on
+ * this screen rather than hidden in the backend because the claims this project
+ * makes about its AI — never calculates (architecture §4.1), explains in plain
+ * language (FR-6.3), never poses as a licensed professional (FR-6.5) — are
+ * claims a reader should be able to check rather than take on trust. Every
+ * number in the first panel is a stored `kpi_snapshots` value and no
+ * transaction appears in it; the rules that govern how it is used are in the
+ * second.
  *
- * The advisory disclaimer (FR-6.5) is shown from the start. It belongs to 7.3
- * as a *system-prompt* concern, but a screen that renders assistant-labelled
- * text should carry it the moment that text exists, not once the model is
- * wired up.
+ * **The advisory disclaimer is shown permanently, not per answer (FR-6.5).**
+ * The system prompt tells the model to say it in the answers that give advice,
+ * where a person is reading. The standing line below the composer is the part
+ * no model output can forget or remove — boilerplate appended to every message
+ * would be read once and skipped forever, which is the opposite of clearly
+ * indicating anything.
  */
 
 "use client";
@@ -34,12 +39,14 @@ import {
   createChatSession,
   deleteChatSession,
   getChatContext,
+  getChatPrompt,
   getChatSession,
   listChatSessions,
   listCompanies,
   postChatMessage,
   type ChatContext,
   type ChatMessage,
+  type ChatPrompt,
   type ChatSession,
   type Company,
 } from "@/lib/api";
@@ -62,6 +69,7 @@ export default function ChatPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [context, setContext] = useState<ChatContext | null>(null);
+  const [prompt, setPrompt] = useState<ChatPrompt | null>(null);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -79,15 +87,18 @@ export default function ChatPage() {
       const co = (await listCompanies(token))[0] ?? null;
       setCompany(co);
       if (!co) return;
-      // The figures an answer would be grounded in (7.2). Fetched here so the
-      // panel is populated before anything is asked — what the assistant can
-      // see doesn't depend on having asked it something.
-      const [list, ctx] = await Promise.all([
+      // The figures an answer would be grounded in (7.2) and the rules it
+      // answers under (7.3). Fetched here so both panels are populated before
+      // anything is asked — what the assistant can see and what it's told to do
+      // don't depend on having asked it something.
+      const [list, ctx, prm] = await Promise.all([
         listChatSessions(co.id, token),
         getChatContext(co.id, token),
+        getChatPrompt(co.id, token),
       ]);
       setSessions(list);
       setContext(ctx);
+      setPrompt(prm);
       // Reopen the most recent conversation, so returning to the page picks up
       // where the user left off rather than staring at a blank screen.
       if (list.length > 0) {
@@ -221,13 +232,12 @@ export default function ChatPage() {
         </nav>
       </header>
 
-      {/* Honest about what this does today (7.2 of 7.4). */}
+      {/* Honest about what this does today (7.3 of 7.4). */}
       <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
         <strong className="font-medium">Not connected yet.</strong> The
-        conversation, its history and the figures behind it are working — you
-        can see exactly what the assistant would be given below. The language
-        model itself isn&apos;t wired up, so it replies with a placeholder for
-        now.
+        conversation, the figures behind it and the instructions it answers
+        under are all working — you can read both below. The language model
+        itself isn&apos;t wired up, so it replies with a placeholder for now.
       </p>
 
       {error && (
@@ -370,6 +380,7 @@ export default function ChatPage() {
             </form>
 
             {context && <ContextPanel context={context} />}
+            {prompt && <PromptPanel prompt={prompt} />}
 
             {/* FR-6.5 — shown wherever assistant-labelled text is rendered. */}
             <p className="text-xs text-black/50 dark:text-white/50">
@@ -447,6 +458,46 @@ function ContextPanel({ context }: { context: ChatContext }) {
             </p>
           </>
         )}
+      </div>
+    </details>
+  );
+}
+
+/**
+ * The instructions it follows (7.3, FR-6.3 / FR-6.5). Collapsed by default and
+ * sitting beside the figures panel, because the two answer the same question
+ * from opposite ends: that one is what the assistant is given, this one is what
+ * it is told to do with it.
+ *
+ * The prompt is shown verbatim, in a monospace block, rather than summarised.
+ * A paraphrase of a rule is not the rule — the whole point is that a reader can
+ * check the claims on this page (never calculates, plain language, not a
+ * licensed professional) against the text that actually enforces them.
+ *
+ * `system_prompt` is shown rather than `system_message`: the latter appends
+ * this company's figures, which is exactly what the panel above already shows.
+ */
+function PromptPanel({ prompt }: { prompt: ChatPrompt }) {
+  return (
+    <details className="rounded-lg border border-black/10 dark:border-white/15">
+      <summary className="cursor-pointer select-none px-3.5 py-2.5 text-xs font-medium hover:bg-black/[0.03] dark:hover:bg-white/[0.04] rounded-lg transition-colors">
+        The instructions it follows
+        <span className="ml-2 font-normal text-black/45 dark:text-white/45">
+          the rules every answer is written under
+        </span>
+      </summary>
+
+      <div className="border-t border-black/10 dark:border-white/15 px-3.5 py-3">
+        <p className="text-xs text-black/60 dark:text-white/60">
+          This is the full text sent with every question, word for word. It is
+          what stops the assistant working numbers out for itself, keeps the
+          language plain, and makes it say when an answer is edging into advice.
+          Your last {prompt.max_history_messages} messages travel with it for
+          continuity, along with the figures above.
+        </p>
+        <pre className="mt-3 max-h-80 overflow-auto rounded-md bg-black/[0.03] dark:bg-white/[0.04] p-3 text-[0.7rem] leading-relaxed whitespace-pre-wrap font-mono text-black/70 dark:text-white/70">
+          {prompt.system_prompt}
+        </pre>
       </div>
     </details>
   );

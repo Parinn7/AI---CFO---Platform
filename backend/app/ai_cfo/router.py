@@ -1,10 +1,10 @@
-"""AI CFO chat endpoints (tasks 7.1–7.2).
+"""AI CFO chat endpoints (tasks 7.1–7.3).
 
-The conversational interface, its persistence, and the KPI context an answer is
-grounded in. **No LLM is called yet** — asking a question stores the question
-and a clearly-labelled placeholder answer (see `ai_cfo.service`), now carrying
-the id of the snapshot the real answer will be built from; the system prompt
-(7.3) and the provider (7.4) come next.
+The conversational interface, its persistence, the KPI context an answer is
+grounded in, and the instructions it is answered under. **No LLM is called
+yet** — asking a question assembles the full prompt and then stores a
+clearly-labelled placeholder answer (see `ai_cfo.service`) carrying the id of
+the snapshot behind it; the provider call is 7.4.
 
 Every route requires a session and is scoped to a company the caller owns,
 answering 404 rather than 403 so existence isn't leaked.
@@ -18,12 +18,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai_cfo import context as context_module
+from app.ai_cfo import prompt as prompt_module
 from app.ai_cfo import service
 from app.ai_cfo.models import ChatSession
 from app.ai_cfo.schemas import (
     ChatContextRead,
     ChatMessageCreate,
     ChatMessageRead,
+    ChatPromptRead,
     ChatSessionCreate,
     ChatSessionDetail,
     ChatSessionRead,
@@ -202,4 +204,31 @@ async def get_context(
             figures=[FigureRead(**vars(f)) for f in assembled.figures],
             rendered=context_module.render(assembled),
         ),
+    )
+
+
+@router.get("/prompt", response_model=ChatPromptRead)
+async def get_prompt(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ChatPromptRead:
+    """The instructions the assistant answers under (7.3, FR-6.3 / FR-6.5).
+
+    The companion to `GET /chat/context`: that endpoint shows *what* the model
+    is given, this one shows *what it is told to do with it*. Both exist so the
+    project's claims about its AI are checkable rather than asserted — plain
+    language, never calculating, never posing as a licensed professional are all
+    properties of a block of text a reader can now read.
+
+    Answers 200 whether or not the company has figures; with none, the message
+    carries the block that tells the assistant to say so instead of answering.
+    """
+    await _require_company(company_id, current_user, db)
+    context = await service.build_context(db, company_id)
+    return ChatPromptRead(
+        company_id=company_id,
+        system_prompt=prompt_module.SYSTEM_PROMPT,
+        system_message=prompt_module.system_message(context),
+        max_history_messages=prompt_module.MAX_HISTORY_MESSAGES,
     )

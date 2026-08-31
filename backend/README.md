@@ -15,7 +15,7 @@ backend/
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
     financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, anomaly, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — deterministic scenario simulation: simulation, service, schemas, router (FR-5.x)
-    ai_cfo/              # Phase 7 — chat + KPI context assembly: models (chat_sessions/chat_messages), context, service, schemas, router (FR-6.x)
+    ai_cfo/              # Phase 7 — chat, KPI context assembly, system prompt: models (chat_sessions/chat_messages), context, prompt, service, schemas, router (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
   migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots; 0005 scenarios; 0006 chat_sessions+chat_messages)
   tests/                 # pytest smoke + feature tests
@@ -25,7 +25,7 @@ backend/
 ```
 
 `reports` is still a package placeholder — it gains its router/service in
-Phase 8. `ai_cfo` is built out except for the model call itself (7.3–7.4).
+Phase 8. `ai_cfo` is built out except for the model call itself (7.4).
 
 ## Setup
 
@@ -348,14 +348,15 @@ curl -X POST localhost:8000/api/v1/scenarios/simulate \
        "assumptions":{"new_hires":5,"avg_salary_per_hire":"90000","marketing_change_pct":"50"}}'
 ```
 
-## AI CFO chat (Phase 7.1–7.2)
+## AI CFO chat (Phase 7.1–7.3)
 
 The conversational interface (FR-6.1), its persistence — `chat_sessions` and
-`chat_messages` (schema §8–9, migration `0006`) — and the KPI context an answer
-is grounded in (FR-6.2). **No LLM is called yet.** What remains is the
-plain-language system prompt and disclaimer (7.3) and the swappable provider
-(7.4), both behind one seam: `service.answer_question(db, company_id, question)
--> (reply, snapshot_id)`.
+`chat_messages` (schema §8–9, migration `0006`) — the KPI context an answer is
+grounded in (FR-6.2), and the instructions it is answered under (FR-6.3,
+FR-6.5). **No LLM is called yet.** What remains is the provider call (7.4),
+behind one seam: `service.answer_question(db, session, question)` already
+assembles the full prompt and then returns the placeholder instead of sending
+it.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -365,6 +366,7 @@ plain-language system prompt and disclaimer (7.3) and the swappable provider
 | `POST /api/v1/chat/sessions/{id}/messages` | Ask a question → `{user_message, assistant_message}` (`201`). Body carries **only** `content`. |
 | `DELETE /api/v1/chat/sessions/{id}` | Delete a conversation and its messages (`204`). |
 | `GET /api/v1/chat/context?company_id=` | Exactly what the assistant is given, including the rendered prompt block (7.2). |
+| `GET /api/v1/chat/prompt?company_id=` | The standing instructions it answers under, plus the literal system message (7.3). |
 
 ### Context assembly (7.2, FR-6.2 / architecture §4.1)
 
@@ -403,6 +405,47 @@ right.
   picking a different period for a runway question — would be the assistant
   starting to reason about finances on its own. The context is small enough to
   always carry everything.
+
+### The system prompt (7.3, FR-6.3 / FR-6.5)
+
+`app/ai_cfo/prompt.py` is pure and DB-free like `context.py`: `SYSTEM_PROMPT`
+plus `build_messages(context, history, question)`, returning the `PromptMessage`
+list a provider takes. `GET /chat/prompt` returns it and `/chat` renders it
+verbatim under *"The instructions it follows"* — the same reasoning as the
+figures panel, applied to the rules instead of the numbers.
+
+- **Most of the prompt is prohibition, deliberately.** The failure worth
+  preventing isn't an unhelpful answer, it's a confident one containing
+  arithmetic the model did itself — "so that's about ₹50L a year" is a
+  calculation, and a wrong one looks exactly like a right one. So the rule is
+  absolute, with no "unless it's simple": no addition, subtraction, percentages,
+  ratios, averages or annualising, and a figure not in the block "does not exist
+  for you".
+- **The disclaimer is not appended to every answer.** Boilerplate on every
+  message is read once and skipped forever. Two things carry FR-6.5 instead: a
+  permanent notice on `/chat` that no model output can remove, and an
+  instruction to say it *in* the answer that gives advice, in the model's own
+  words, where someone is reading.
+- **Instructions come before figures** in the system message — the rules govern
+  the numbers, and the stable half first means a provider can cache the prefix.
+- **A company with no data gets an explicit empty block**, not an absent one. A
+  missing block reads as "no constraints" and invites an answer from general
+  knowledge, which is the generic advice FR-6.2 exists to rule out.
+- **Placeholder turns are filtered out of replayed history**
+  (`service.replayable_history`). Every conversation started before 7.4 holds
+  assistant turns saying the assistant isn't connected; replaying those shows
+  the model a transcript in which it already refused to help. Only the
+  placeholder is dropped, and only because it's inert — real answers are always
+  replayed, including ones quoting figures since superseded, with the prompt
+  saying that only the current block is authoritative. Editing history would be
+  the dishonest fix.
+- **History is capped at `MAX_HISTORY_MESSAGES` (12)** so a long conversation
+  can't push the figures out of the model's attention, and the window is trimmed
+  to start on a user turn — a leading assistant message reads as the model
+  having spoken first, which some providers reject outright.
+- **The prompt is assembled on every real question already**, even though
+  nothing sends it. It costs a few string joins and means 7.4 inherits an
+  assembly path exercised against real conversations rather than only tests.
 
 **Decisions worth knowing:**
 

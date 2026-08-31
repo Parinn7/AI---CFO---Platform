@@ -1,4 +1,4 @@
-"""Pydantic schemas for the AI CFO chat (tasks 7.1–7.2)."""
+"""Pydantic schemas for the AI CFO chat (tasks 7.1–7.3)."""
 
 from __future__ import annotations
 
@@ -135,3 +135,29 @@ class ChatContextRead(BaseModel):
     available: bool
     unavailable_reason: str | None = None
     context: CfoContextRead | None = None
+
+
+# --- The system prompt (task 7.3, FR-6.3 / FR-6.5) ---
+
+
+class ChatPromptRead(BaseModel):
+    """The standing instructions the assistant answers under.
+
+    Exposed for the same reason the figures are (7.2): the claims this project
+    makes about its AI — that it explains in plain language, never calculates,
+    and never poses as a licensed professional — live in a block of text, and a
+    reader should be able to check that text rather than take the claim on
+    trust.
+
+    `system_prompt` is the stable half, identical for every company and every
+    question. `system_message` is the literal message that gets sent: the same
+    instructions followed by this company's figures, or by a block saying it has
+    none. The per-question part — conversation history and the question itself —
+    isn't here because it isn't standing configuration; see
+    `service.build_prompt`.
+    """
+
+    company_id: uuid.UUID
+    system_prompt: str
+    system_message: str
+    max_history_messages: int

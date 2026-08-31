@@ -167,7 +167,7 @@ state; a lever at 0 comes back **blank**, because blank is how this form spells
 Decimal fields as strings (`ScenarioAssumptionsRead`), like every other figure
 the API returns — coerce, don't assume.
 
-## AI CFO chat (Phase 7.1–7.2)
+## AI CFO chat (Phase 7.1–7.3)
 
 `/chat` (auth-guarded, linked from the dashboard and `/scenarios`) is the
 conversational interface (FR-6.1): a conversation list, a transcript, and a
@@ -197,6 +197,22 @@ appears in it at all.
   the panel would be claiming the assistant saw figures it didn't.
 - **No data yet is a sentence, not an error** — `available: false` renders the
   reason plus a link to `/data`.
+
+**"The instructions it follows" (7.3, FR-6.3 / FR-6.5).** A second panel beside
+it shows the system prompt **verbatim**, in a monospace block, fetched via
+`getChatPrompt`. The two answer the same question from opposite ends: one is
+what the assistant is given, the other is what it's told to do with it. It's
+shown rather than summarised because a paraphrase of a rule is not the rule —
+the point is that a reader can check this page's claims (never calculates, plain
+language, not a licensed professional) against the text that enforces them. The
+panel renders `system_prompt`, not `system_message`, since the latter appends
+the figures the panel above already shows.
+
+**The advisory disclaimer is permanent, not per-answer.** The standing line
+under the composer is the part no model output can forget or remove; the system
+prompt separately tells the model to say it inside answers that give advice.
+Boilerplate appended to every message would be read once and skipped forever,
+which is the opposite of clearly indicating anything (FR-6.5).
 
 Details it gets right:
 
