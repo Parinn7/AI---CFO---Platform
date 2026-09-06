@@ -31,9 +31,9 @@ The system follows a standard three-tier architecture with an integrated AI laye
                          │    │
               ┌──────────▼┐  ┌▼─────────────────┐
               │ PostgreSQL │  │ LLM API           │
-              │ (primary   │  │ (OpenAI / Gemini) │
-              │  data store)│ └───────────────────┘
-              └────────────┘
+              │ (primary   │  │ (Gemini, behind a │
+              │  data store)│ │  provider iface)  │
+              └────────────┘  └───────────────────┘
 ```
 
 ## 2. Frontend Architecture
@@ -59,7 +59,7 @@ The system follows a standard three-tier architecture with an integrated AI laye
     /transactions   # upload parsing, manual entry, categorization
     /financial_engine  # revenue/expense calc, cash flow, KPIs, anomaly detection
     /scenarios      # scenario simulation logic
-    /ai_cfo         # LLM orchestration, prompt construction, chat history
+    /ai_cfo         # LLM orchestration, prompt construction, chat history, /providers (swappable LLM vendors)
     /reports        # report generation, PDF export
     /core           # config, db session, security utils, shared schemas
   /tests
@@ -105,8 +105,8 @@ This is the piece that turns "just call an LLM API" into something reliable:
 
 1. **Context assembly** — before calling the LLM, the backend assembles a structured context from the company's precomputed KPIs. This is built server-side, not left to the frontend. **Narrowed in 7.2 to `kpi_snapshots` only** — the original sketch above this line also listed a "recent transactions summary" and active scenarios; the transaction summary was dropped because §4.1 is easier to hold as an absolute than as a rule with exceptions (any transaction-shaped input is an invitation for the model to aggregate it), and scenarios were left out because a saved scenario is a hypothetical, not a fact about the business. Non-numeric company facts (name, industry) do come from `companies` — "you're a SaaS business" changes how a figure should be explained without being a figure.
 2. **Prompt construction** — a system prompt defines the AI CFO's role, tone (plain language, non-technical), and constraints (must reference actual data, must include the "not a licensed financial advisor" disclaimer where relevant). **As implemented (7.3):** `app/ai_cfo/prompt.py` holds `SYSTEM_PROMPT` plus `build_messages(context, history, question)`, both pure and DB-free. The system message is the standing instructions followed by the 7.2 figure block — that order so the rules are read before the numbers they govern, and so a provider can cache the stable prefix. `GET /api/v1/chat/prompt?company_id=` returns it, and `/chat` shows it verbatim under **"The instructions it follows"**, next to the figures panel. Most of the prompt is prohibition on purpose: the failure mode worth preventing isn't an unhelpful answer, it's a confident one containing arithmetic the model did itself ("so that's about ₹50L a year"), which is indistinguishable from a correct figure at a glance. Up to `MAX_HISTORY_MESSAGES` (12) prior turns travel with a question for continuity; the prompt states that only the current figure block is authoritative, since replayed answers may quote a superseded snapshot.
-3. **LLM call** — sent to OpenAI or Gemini (configurable provider, behind an interface so switching providers doesn't require rewriting the feature).
-4. **Response handling** — response is stored in `ChatMessage` history tied to the company/session, so conversations persist and can reference prior turns.
+3. **LLM call** — sent to a configurable provider behind an interface, so switching providers doesn't require rewriting the feature. **As implemented (7.4, FR-6.4):** `app/ai_cfo/providers/` is the only place in the codebase that names a vendor — `base.py` is the contract (messages in, text out, errors raised), `gemini.py` implements it, `null.py` is the disconnected case, and `get_provider()` maps `LLM_PROVIDER` onto one. **Google Gemini** is the provider actually in use (`gemini-3.8-flash`), chosen for its free development tier; it is reached over plain REST with `httpx` rather than a vendor SDK, so the whole request body is visible and testable in ~80 lines. The contract is deliberately narrow — no streaming, tool calls or structured output — which both keeps it portable across any chat API and leaves the model nowhere to start doing work §4.1 reserves for the Financial Engine. The system prompt travels in Gemini's `system_instruction` rather than as a conversation turn, so the figure block can't be read as something said earlier and superseded. Thinking tokens are disabled by default: they are charged against the same output budget as the answer, and this assistant is forbidden from reasoning over numbers anyway. **An empty `LLM_API_KEY` is a supported state, not an error** — the provider reports itself unconfigured and the 7.1 placeholder is stored instead, so the app runs without a key; an *unknown* provider name is a loud misconfiguration error, because a typo that silently reads as "not connected yet" would sit undiagnosed. `GET /api/v1/chat/provider` reports which of the two is the case, and `/chat` renders it — the banner is asked for, never hard-coded.
+4. **Response handling** — response is stored in `ChatMessage` history tied to the company/session, so conversations persist and can reference prior turns. **Failures are never stored as replies (7.4):** the question and answer are written in one transaction, so a provider outage, a rejected key or a blocked prompt leaves nothing behind and the endpoint answers `503`. `chat_messages` is the audit trail behind §4.1 — writing "sorry, something went wrong" into it would put words in the assistant's mouth there, and the history filter would then replay that apology into later prompts. The error's user-facing sentence is returned; the provider's own detail (which routinely quotes the API key) stays in the log.
 
 Keeping this as its own module (`/ai_cfo`) matters because it's the part most likely to change (prompt tuning, provider swaps, cost optimization) — it shouldn't be tangled into the core financial engine logic.
 
@@ -183,14 +183,18 @@ at figures the comparison didn't use.
 ### 5.3 AI CFO Chat
 `User asks a question` → `AI CFO Orchestrator pulls current KPIs/context` → `Constructs prompt` → `Calls LLM API` → `Stores + returns response`
 
-**The interface and its persistence land before the model (7.1).** `app/ai_cfo/`
+**The interface and its persistence landed before the model (7.1).** `app/ai_cfo/`
 ships the chat screen, `chat_sessions`/`chat_messages` (migration `0006`) and
 owner-scoped endpoints — `POST /api/v1/chat/sessions`, `GET
 /api/v1/chat/sessions`, `GET|DELETE /api/v1/chat/sessions/{id}`, `POST
 /api/v1/chat/sessions/{id}/messages` — with **no LLM call at all**. Context
-assembly (7.2), the system prompt (7.3) and the provider (7.4) fill in behind a
-single seam, `service.answer_question(question) -> (reply, snapshot_id)`, whose
-signature is already the one the real implementation needs.
+assembly (7.2), the system prompt (7.3) and the provider (7.4) then filled in
+behind a single seam, `service.answer_question(...) -> (reply, snapshot_id)`,
+whose signature was already the one the real implementation needed. Two further
+endpoints were added for disclosure rather than function: `GET
+/api/v1/chat/context` (what the assistant is given), `GET /api/v1/chat/prompt`
+(what it is told to do with it), and `GET /api/v1/chat/provider` (which model
+answers).
 
 Decisions made in 7.1:
 
@@ -227,7 +231,7 @@ PostgreSQL as the single primary data store for MVP (schema detailed separately 
 
 | Integration | Purpose | Notes |
 |---|---|---|
-| OpenAI / Gemini API | AI CFO Assistant | Abstracted behind a provider interface for flexibility |
+| Google Gemini API (`generateContent`) | AI CFO Assistant | Behind the provider interface in `app/ai_cfo/providers` (7.4, FR-6.4). Plain REST via `httpx`, no vendor SDK. Another vendor is a new module plus a registry line; `LLM_PROVIDER=none` runs the app with no model at all. |
 | PDF generation library (e.g., WeasyPrint or a JS equivalent) | Report export | Runs server-side in the `/reports` module |
 
 ## 8. Deployment Topology (High-Level)

@@ -22,6 +22,12 @@ email-validator>=2.2.0   # backs pydantic EmailStr for signup/login validation
 bcrypt>=4.2.1            # password hashing (NFR-2); used directly, no passlib wrapper
 PyJWT>=2.10.1            # JWT access tokens for session auth (FR-1.2)
 
+# AI CFO assistant (Phase 7.4 — LLM provider calls, FR-6.4)
+# The Gemini provider talks to generateContent over plain REST rather than via
+# a vendor SDK — see app/ai_cfo/providers/gemini.py for why. httpx was already
+# here for the test client; from 7.4 it is a runtime dependency too.
+httpx>=0.28.1
+
 # Data input (Phase 3.2 — CSV/XLSX upload + parsing)
 python-multipart>=0.0.18  # FastAPI multipart/form-data (file uploads)
 openpyxl>=3.1.5           # XLSX parsing
@@ -29,5 +35,4 @@ openpyxl>=3.1.5           # XLSX parsing
 # Testing
 pytest>=8.3.4
 pytest-asyncio>=0.24.0   # async test support for auth endpoint tests
-httpx>=0.28.1
 aiosqlite>=0.20.0        # in-memory async DB for auth endpoint tests (no live Postgres needed)

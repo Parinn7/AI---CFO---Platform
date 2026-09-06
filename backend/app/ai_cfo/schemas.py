@@ -1,4 +1,4 @@
-"""Pydantic schemas for the AI CFO chat (tasks 7.1–7.3)."""
+"""Pydantic schemas for the AI CFO chat (tasks 7.1–7.4)."""
 
 from __future__ import annotations
 
@@ -161,3 +161,24 @@ class ChatPromptRead(BaseModel):
     system_prompt: str
     system_message: str
     max_history_messages: int
+
+
+class ChatProviderRead(BaseModel):
+    """Which language model, if any, is answering (7.4, FR-6.4).
+
+    Exists so the chat screen can state its own status truthfully instead of
+    hard-coding it. Through 7.1–7.3 the page carried a banner reading "not
+    connected yet", which was accurate then and would have quietly become a lie
+    the moment a key was added. The page now asks.
+
+    `configured` is the only field the UI branches on: `provider` and `model`
+    name what is answering, for the same reason the figures and the system
+    prompt are on that screen — a reader can see what produced the words rather
+    than take it on trust. No key or secret is exposed; an unconfigured
+    provider still reports its name, because "Gemini, with no key" and "nothing
+    configured" are different states to be in.
+    """
+
+    provider: str
+    model: str
+    configured: bool

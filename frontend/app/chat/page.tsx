@@ -1,22 +1,25 @@
 /**
- * AI CFO chat (Phase 7.1–7.3, FR-6.1 / FR-6.2 / FR-6.3 / FR-6.5). Auth-guarded.
- * A conversational interface for asking questions about the company's finances,
- * with conversations saved and revisitable.
+ * AI CFO chat (Phase 7.1–7.4, FR-6.1 / FR-6.2 / FR-6.3 / FR-6.4 / FR-6.5).
+ * Auth-guarded. A conversational interface for asking questions about the
+ * company's finances, with conversations saved and revisitable.
  *
- * **No model is connected yet.** The assistant returns a fixed placeholder that
- * quotes no figures; the provider lands in 7.4. The screen says so plainly
- * rather than looking like a working assistant that happens to be unhelpful.
+ * **The connection status is asked for, never assumed (7.4).** Through 7.1–7.3
+ * this page carried a hard-coded banner reading "not connected yet", which was
+ * true then and would have become a lie the moment a key was added. It now
+ * reads `GET /chat/provider` and states whichever is actually the case: the
+ * model that is answering, or that replies are still a placeholder. A claim
+ * about the system that the system itself reports cannot go stale.
  *
- * **Two disclosure panels, for the same reason.** *What the assistant can see*
- * (7.2) is the exact set of precomputed figures an answer is built from; *the
- * instructions it follows* (7.3) is the system prompt, verbatim. Both are on
- * this screen rather than hidden in the backend because the claims this project
- * makes about its AI — never calculates (architecture §4.1), explains in plain
- * language (FR-6.3), never poses as a licensed professional (FR-6.5) — are
- * claims a reader should be able to check rather than take on trust. Every
- * number in the first panel is a stored `kpi_snapshots` value and no
- * transaction appears in it; the rules that govern how it is used are in the
- * second.
+ * **Three disclosure panels, for the same reason.** *What the assistant can
+ * see* (7.2) is the exact set of precomputed figures an answer is built from;
+ * *the instructions it follows* (7.3) is the system prompt, verbatim; the
+ * banner (7.4) names what wrote the words. All on this screen rather than
+ * hidden in the backend because the claims this project makes about its AI —
+ * never calculates (architecture §4.1), explains in plain language (FR-6.3),
+ * never poses as a licensed professional (FR-6.5) — are claims a reader should
+ * be able to check rather than take on trust. Every number in the first panel
+ * is a stored `kpi_snapshots` value and no transaction appears in it; the rules
+ * that govern how it is used are in the second.
  *
  * **The advisory disclaimer is shown permanently, not per answer (FR-6.5).**
  * The system prompt tells the model to say it in the answers that give advice,
@@ -40,6 +43,7 @@ import {
   deleteChatSession,
   getChatContext,
   getChatPrompt,
+  getChatProvider,
   getChatSession,
   listChatSessions,
   listCompanies,
@@ -47,6 +51,7 @@ import {
   type ChatContext,
   type ChatMessage,
   type ChatPrompt,
+  type ChatProvider,
   type ChatSession,
   type Company,
 } from "@/lib/api";
@@ -70,6 +75,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [context, setContext] = useState<ChatContext | null>(null);
   const [prompt, setPrompt] = useState<ChatPrompt | null>(null);
+  const [provider, setProvider] = useState<ChatProvider | null>(null);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -84,8 +90,15 @@ export default function ChatPage() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const co = (await listCompanies(token))[0] ?? null;
+      // Which model is answering (7.4) — a property of the deployment, not of
+      // the company, so it's fetched before anything else and stands even on
+      // the "set up your company first" screen.
+      const [co, prov] = await Promise.all([
+        listCompanies(token).then((cs) => cs[0] ?? null),
+        getChatProvider(token).catch(() => null),
+      ]);
       setCompany(co);
+      setProvider(prov);
       if (!co) return;
       // The figures an answer would be grounded in (7.2) and the rules it
       // answers under (7.3). Fetched here so both panels are populated before
@@ -165,6 +178,10 @@ export default function ChatPage() {
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't send that message.");
+      // The question goes back in the box. From 7.4 a send can fail for a
+      // reason worth retrying — the model briefly unreachable — and making
+      // someone retype what they asked would be the wrong way to say so.
+      setDraft(content);
     } finally {
       setSending(false);
     }
@@ -232,13 +249,8 @@ export default function ChatPage() {
         </nav>
       </header>
 
-      {/* Honest about what this does today (7.3 of 7.4). */}
-      <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
-        <strong className="font-medium">Not connected yet.</strong> The
-        conversation, the figures behind it and the instructions it answers
-        under are all working — you can read both below. The language model
-        itself isn&apos;t wired up, so it replies with a placeholder for now.
-      </p>
+      {/* What is answering, straight from the server (7.4, FR-6.4). */}
+      <ProviderBanner provider={provider} />
 
       {error && (
         <p className="text-sm text-red-500" role="alert">
@@ -312,7 +324,14 @@ export default function ChatPage() {
               className="min-h-[22rem] rounded-xl border border-black/10 dark:border-white/15 p-5"
               aria-live="polite"
             >
-              {messages.length === 0 ? (
+              {/* `!sending` matters on the *first* question of a new
+                  conversation: the transcript is empty, so without it the
+                  suggestion chips would sit there unchanged through a
+                  multi-second model call and the screen would look ignored.
+                  Falling through to the list branch renders no messages and
+                  the "Thinking…" line, which is the whole point. Invisible
+                  until 7.4 — the placeholder came back instantly. */}
+              {messages.length === 0 && !sending ? (
                 <div className="flex h-full flex-col justify-center gap-4 py-8 text-center">
                   <p className="text-sm text-black/60 dark:text-white/60">
                     Ask anything about your company&apos;s finances.
@@ -391,6 +410,45 @@ export default function ChatPage() {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * Which model is answering (7.4, FR-6.4).
+ *
+ * Two states, and the honest thing to do differs in each. With no key
+ * configured the assistant replies with a fixed placeholder, and saying so in
+ * amber is the whole point — an assistant that looked like it was working and
+ * happened to be unhelpful would be worse than one that admits it isn't wired
+ * up. With a model connected, the banner names it, because "an AI wrote this"
+ * is a fact about the answer a reader is entitled to, in the same way the
+ * figures and the rules below are.
+ *
+ * Renders nothing while the status is still loading, or if the call failed:
+ * a banner that guessed would be exactly the hard-coded claim this replaced.
+ */
+function ProviderBanner({ provider }: { provider: ChatProvider | null }) {
+  if (!provider) return null;
+
+  if (!provider.configured) {
+    return (
+      <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-500">
+        <strong className="font-medium">Not connected yet.</strong> The
+        conversation, the figures behind it and the instructions it answers
+        under are all working — you can read both below. No language model is
+        configured on this server, so it replies with a placeholder for now.
+      </p>
+    );
+  }
+
+  return (
+    <p className="rounded-md border border-black/10 dark:border-white/15 px-3 py-2 text-xs text-black/60 dark:text-white/60">
+      <strong className="font-medium text-black/75 dark:text-white/75">
+        Answers are written by {provider.model}.
+      </strong>{" "}
+      It is given only the figures below — already calculated by this platform —
+      and is never asked to work any of them out.
+    </p>
   );
 }
 

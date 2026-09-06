@@ -36,9 +36,24 @@ class Settings(BaseSettings):
     # Password-reset links are short-lived (task 2.4, FR-1.4).
     reset_token_expire_minutes: int = 30
 
-    # --- LLM provider (used from Phase 7 onward) ---
-    llm_provider: str = "openai"
+    # --- LLM provider (task 7.4, FR-6.4) ---
+    # `gemini` or `none`; see `app/ai_cfo/providers`. An empty key is a
+    # supported state, not an error — the assistant reports itself as not
+    # connected and answers with the placeholder rather than failing.
+    llm_provider: str = "gemini"
     llm_api_key: str = ""
+    llm_model: str = "gemini-3.8-flash"
+    llm_timeout_seconds: float = 30.0
+    # The AI CFO answers in a few short paragraphs (see the system prompt), so
+    # the budget is sized for prose rather than for reasoning.
+    llm_max_output_tokens: int = 1024
+    # Low: these answers explain figures that were already calculated, so
+    # variation adds nothing worth having.
+    llm_temperature: float = 0.2
+    # Gemini 2.5 thinking tokens are charged against the output budget above,
+    # and this assistant is forbidden from reasoning over numbers anyway
+    # (architecture §4.1). `-1` = dynamic; `0` is only valid on flash models.
+    llm_thinking_budget: int = 0
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins.

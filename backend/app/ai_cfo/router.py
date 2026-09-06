@@ -1,10 +1,12 @@
-"""AI CFO chat endpoints (tasks 7.1–7.3).
+"""AI CFO chat endpoints (tasks 7.1–7.4).
 
 The conversational interface, its persistence, the KPI context an answer is
-grounded in, and the instructions it is answered under. **No LLM is called
-yet** — asking a question assembles the full prompt and then stores a
-clearly-labelled placeholder answer (see `ai_cfo.service`) carrying the id of
-the snapshot behind it; the provider call is 7.4.
+grounded in, the instructions it is answered under, and the provider that
+answers. Asking a question assembles the full prompt, sends it to whatever
+`LLM_PROVIDER` names, and stores the answer with the id of the snapshot behind
+it. With no key configured the stored answer is the clearly-labelled
+placeholder (see `ai_cfo.service`); `GET /chat/provider` says which of the two
+is happening.
 
 Every route requires a session and is scoped to a company the caller owns,
 answering 404 rather than 403 so existence isn't leaked.
@@ -12,6 +14,7 @@ answering 404 rather than 403 so existence isn't leaked.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -21,11 +24,18 @@ from app.ai_cfo import context as context_module
 from app.ai_cfo import prompt as prompt_module
 from app.ai_cfo import service
 from app.ai_cfo.models import ChatSession
+from app.ai_cfo.providers import (
+    LLMConfigurationError,
+    LLMError,
+    LLMProvider,
+    get_provider,
+)
 from app.ai_cfo.schemas import (
     ChatContextRead,
     ChatMessageCreate,
     ChatMessageRead,
     ChatPromptRead,
+    ChatProviderRead,
     ChatSessionCreate,
     ChatSessionDetail,
     ChatSessionRead,
@@ -38,7 +48,31 @@ from app.auth.models import User
 from app.companies.service import get_company_for_user
 from app.core.database import get_db
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/chat", tags=["ai-cfo"])
+
+
+def current_provider() -> LLMProvider:
+    """The configured LLM provider, as a FastAPI dependency (7.4, FR-6.4).
+
+    A dependency rather than a direct `get_provider()` call so the test suite
+    can substitute one through `app.dependency_overrides` — the endpoint tests
+    need to exercise a *connected* assistant, and the only alternatives are
+    monkeypatching a module global or letting the suite reach the real API over
+    the network with a real key.
+
+    An unknown `LLM_PROVIDER` is answered 503 here rather than escaping as a
+    500: it's a server misconfiguration, and saying so is more use than a
+    generic failure.
+    """
+    try:
+        return get_provider()
+    except LLMConfigurationError as exc:
+        logger.error("AI CFO provider is misconfigured: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=exc.user_message
+        ) from exc
 
 
 async def _require_company(
@@ -126,22 +160,36 @@ async def post_message(
     payload: ChatMessageCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    provider: LLMProvider = Depends(current_provider),
 ) -> ChatTurnRead:
     """Ask the assistant something (FR-6.1).
 
     Only the question is accepted — the role and the answer are both decided
     server-side, so a client can't forge an assistant turn into the history.
-    Returns the exchange as stored.
+    Returns the exchange as stored, with `kpi_context_snapshot_id` on the
+    assistant turn naming the figures it was answered from (7.2).
 
-    **Until 7.4 the answer is a fixed placeholder** that states the assistant
-    isn't connected and quotes no figures. It is not, and must not be mistaken
-    for, financial output. From 7.2 the assistant turn does carry
-    `kpi_context_snapshot_id` — the figures the real answer will be built from.
+    **With no LLM key configured the answer is the fixed placeholder** that
+    states the assistant isn't connected and quotes no figures — a normal
+    state, answered 201 like any other exchange, not an error.
+
+    **A provider that fails answers 503 and stores nothing.** The exchange is
+    written in one transaction, so a failed call leaves no half-conversation
+    behind and the question can just be asked again. The error's user-facing
+    sentence is returned; its detail stays in the log, where it belongs — those
+    messages routinely quote API keys back at you.
     """
     session = await _require_session(session_id, current_user, db)
-    user_message, assistant_message = await service.post_message(
-        db, session, payload.content
-    )
+    try:
+        user_message, assistant_message = await service.post_message(
+            db, session, payload.content, provider
+        )
+    except LLMError as exc:
+        logger.error("AI CFO could not answer session %s: %s", session_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.user_message,
+        ) from exc
     return ChatTurnRead(
         user_message=ChatMessageRead.model_validate(user_message),
         assistant_message=ChatMessageRead.model_validate(assistant_message),
@@ -231,4 +279,28 @@ async def get_prompt(
         system_prompt=prompt_module.SYSTEM_PROMPT,
         system_message=prompt_module.system_message(context),
         max_history_messages=prompt_module.MAX_HISTORY_MESSAGES,
+    )
+
+
+@router.get("/provider", response_model=ChatProviderRead)
+async def get_provider_status(
+    current_user: User = Depends(get_current_user),
+    provider: LLMProvider = Depends(current_provider),
+) -> ChatProviderRead:
+    """What is answering questions on this deployment (7.4, FR-6.4).
+
+    The third disclosure endpoint, beside `/chat/context` (what the assistant is
+    given) and `/chat/prompt` (what it is told to do with it): this one is *who
+    wrote the words*. The chat screen reads it to decide between "not connected
+    — replies are a placeholder" and naming the model, so that banner can never
+    drift out of step with the configuration the way a hard-coded one would.
+
+    Authenticated, since it describes server configuration, but not
+    company-scoped — the provider is a property of the deployment, identical for
+    every company on it. No key or secret is in the response.
+    """
+    return ChatProviderRead(
+        provider=provider.name,
+        model=provider.model,
+        configured=provider.configured,
     )

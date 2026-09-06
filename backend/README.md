@@ -15,7 +15,7 @@ backend/
     transactions/        # Phase 3 — categories, CSV/XLSX upload+parsing, transactions (FR-2.x): models, parsing, service, router
     financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, anomaly, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — deterministic scenario simulation: simulation, service, schemas, router (FR-5.x)
-    ai_cfo/              # Phase 7 — chat, KPI context assembly, system prompt: models (chat_sessions/chat_messages), context, prompt, service, schemas, router (FR-6.x)
+    ai_cfo/              # Phase 7 — chat, KPI context assembly, system prompt, LLM provider: models (chat_sessions/chat_messages), context, prompt, providers/ (base, gemini, null), service, schemas, router (FR-6.x)
     reports/             # Phase 9 — report generation + PDF export (FR-7.x)
   migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots; 0005 scenarios; 0006 chat_sessions+chat_messages)
   tests/                 # pytest smoke + feature tests
@@ -25,7 +25,7 @@ backend/
 ```
 
 `reports` is still a package placeholder — it gains its router/service in
-Phase 8. `ai_cfo` is built out except for the model call itself (7.4).
+Phase 8. `ai_cfo` is complete: Phase 7 ends with 7.4.
 
 ## Setup
 
@@ -348,15 +348,17 @@ curl -X POST localhost:8000/api/v1/scenarios/simulate \
        "assumptions":{"new_hires":5,"avg_salary_per_hire":"90000","marketing_change_pct":"50"}}'
 ```
 
-## AI CFO chat (Phase 7.1–7.3)
+## AI CFO chat (Phase 7)
 
 The conversational interface (FR-6.1), its persistence — `chat_sessions` and
 `chat_messages` (schema §8–9, migration `0006`) — the KPI context an answer is
-grounded in (FR-6.2), and the instructions it is answered under (FR-6.3,
-FR-6.5). **No LLM is called yet.** What remains is the provider call (7.4),
-behind one seam: `service.answer_question(db, session, question)` already
-assembles the full prompt and then returns the placeholder instead of sending
-it.
+grounded in (FR-6.2), the instructions it is answered under (FR-6.3, FR-6.5),
+and the LLM provider that answers (FR-6.4). Complete as of 7.4.
+
+**Running without an API key is supported and is the default.** With
+`LLM_API_KEY` empty the assistant reports itself as not connected and replies
+with the inert placeholder; every other part of the screen works. Set the key
+and it answers for real, with no code change.
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -367,6 +369,7 @@ it.
 | `DELETE /api/v1/chat/sessions/{id}` | Delete a conversation and its messages (`204`). |
 | `GET /api/v1/chat/context?company_id=` | Exactly what the assistant is given, including the rendered prompt block (7.2). |
 | `GET /api/v1/chat/prompt?company_id=` | The standing instructions it answers under, plus the literal system message (7.3). |
+| `GET /api/v1/chat/provider` | Which model is answering, and whether one is configured at all (7.4). No key is exposed. |
 
 ### Context assembly (7.2, FR-6.2 / architecture §4.1)
 
@@ -443,16 +446,78 @@ figures panel, applied to the rules instead of the numbers.
   can't push the figures out of the model's attention, and the window is trimmed
   to start on a user turn — a leading assistant message reads as the model
   having spoken first, which some providers reject outright.
-- **The prompt is assembled on every real question already**, even though
-  nothing sends it. It costs a few string joins and means 7.4 inherits an
+- **The prompt was assembled on every real question from 7.3**, before
+  anything sent it. It cost a few string joins and meant 7.4 inherited an
   assembly path exercised against real conversations rather than only tests.
+
+### The provider (7.4, FR-6.4)
+
+`app/ai_cfo/providers/` is the only place in the codebase that knows a vendor's
+name. `base.py` defines the contract — messages in, text out, errors raised —
+`gemini.py` implements it, `null.py` is the disconnected case, and
+`__init__.get_provider()` maps `LLM_PROVIDER` onto one of them. Adding a vendor
+is a module plus a registry line; nothing above the seam changes.
+
+```bash
+LLM_PROVIDER=gemini            # or `none`
+LLM_API_KEY=...                # https://aistudio.google.com/apikey
+LLM_MODEL=gemini-3.8-flash     # `gemini-flash-latest` tracks the newest flash
+```
+
+- **The contract is deliberately narrow**: no streaming, no tool calls, no
+  structured output. One question, one block of prose. Anything richer would be
+  somewhere for a model to start doing work §4.1 reserves for the Financial
+  Engine — and the narrowness is what makes the seam genuinely portable, since
+  every chat API can satisfy "messages in, text out".
+- **Plain REST over `httpx`, not the vendor SDK.** `generateContent` is ~80
+  lines this way, with every field of the request visible and testable, against
+  an SDK that brings its own auth, transport, retry and telemetry stack (and its
+  own Python-version support matrix, a live concern on 3.14).
+- **The system prompt travels as Gemini's `system_instruction`**, not as a turn.
+  The FIGURES block is standing instruction, not something said earlier in the
+  conversation, and a model that reads it as a turn can treat it as superseded.
+  The assistant's role is renamed `model`. Both are pinned by tests.
+- **Thinking is off by default** (`LLM_THINKING_BUDGET=0`). Gemini 2.5+ reasoning
+  tokens are charged against the same output budget as the answer, so on a small
+  `maxOutputTokens` they can consume the whole allowance and return a truncated
+  candidate with *no text at all*. This assistant is forbidden from reasoning
+  over numbers anyway (§4.1), so the budget goes to prose.
+- **No answer is not an answer.** A 200 carrying a blocked prompt, a
+  safety-stopped candidate or an empty one raises rather than returning `""` —
+  a blank assistant turn would read as the assistant ignoring the question.
+- **Failures raise; they are never stored as replies.** `post_message` writes
+  both turns in one transaction, so a failed call leaves nothing behind and the
+  router answers `503`. Writing "sorry, something went wrong" into
+  `chat_messages` would put words in the assistant's mouth in a table meant as
+  an audit trail — and `replayable_history` would feed that apology into later
+  prompts.
+- **Error text is split in two.** `str(exc)` carries the provider's detail (which
+  routinely quotes API keys back at you) and goes to the log; `user_message` is
+  the sentence returned to the caller. A test asserts a leaked key in the former
+  never reaches the latter.
+- **Retries are decided by the error, not the call site** (`LLMError.retryable`):
+  a 429, a 5xx or a timeout gets one retry, a rejected key or a blocked prompt
+  gets none. Someone is watching a "Thinking…" indicator.
+- **An unknown `LLM_PROVIDER` is an error, not a fallback to `none`.** The two
+  look identical on screen — no answers — and want opposite fixes; a typo that
+  silently reads as "not connected yet" would sit undiagnosed indefinitely. An
+  *empty key* is not this case: that is the normal unconfigured state.
+- **The model id is pinned, not `gemini-flash-latest`.** This has to work on the
+  day of a presentation. Google retires ids for new keys (`gemini-2.5-flash`
+  already 404s with an upgrade hint), which is a loud readable failure rather
+  than a fixed prompt quietly meeting a different model.
+- **The test suite never reaches the network.** `tests/conftest.py` forces
+  `LLM_PROVIDER=none`, so the developer's real key in `.env` can't turn the
+  suite into billed API calls; tests that need a connected assistant inject a
+  provider through `app.dependency_overrides[current_provider]`.
 
 **Decisions worth knowing:**
 
 - **A question always produces an exchange**, both turns written in one
   transaction, so history can never hold a question with no answer.
-- **The placeholder answer is deliberately inert** — it states the assistant
-  isn't connected and contains no figures and no advice. A stub that *sounded*
+- **The placeholder answer — used when no key is configured — is deliberately
+  inert**: it states the assistant isn't connected and contains no figures and
+  no advice. A stub that *sounded*
   like financial output is the real hazard: someone could demo it and a reader
   could believe it. A test pins that the reply contains no digits, `₹` or `%`.
 - **Only the question crosses the wire.** Role and answer are server-decided, so

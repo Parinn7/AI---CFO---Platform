@@ -821,3 +821,20 @@ export function getChatPrompt(
     token,
   );
 }
+
+/** Which language model is answering, if any (7.4, FR-6.4). `configured` is
+ * false when no API key is set — the assistant then replies with a placeholder
+ * rather than failing, and the chat screen says so. No key is ever exposed. */
+export type ChatProvider = {
+  provider: string;
+  model: string;
+  configured: boolean;
+};
+
+/** The third disclosure call, beside `getChatContext` (what the assistant is
+ * given) and `getChatPrompt` (what it's told to do with it): who wrote the
+ * words. Fetched rather than hard-coded so the banner on `/chat` can't drift
+ * out of step with the server's actual configuration. */
+export function getChatProvider(token: string): Promise<ChatProvider> {
+  return apiGet<ChatProvider>("/api/v1/chat/provider", token);
+}

@@ -1,9 +1,10 @@
-"""AI CFO chat service (tasks 7.1–7.3) — sessions, history, context, prompt.
+"""AI CFO chat service (tasks 7.1–7.4) — sessions, history, context, answers.
 
-**No LLM is called here yet.** 7.1 built the interface and its persistence (the
-chat screen, the two tables, owner-scoped access); 7.2 added the context the
-model is given; 7.3 added the instructions it is given with it (`prompt.py`).
-What remains is the provider call itself (7.4).
+The whole path behind a question. 7.1 built the interface and its persistence
+(the chat screen, the two tables, owner-scoped access); 7.2 added the context
+the model is given; 7.3 added the instructions it is given with it
+(`prompt.py`); **7.4 added the provider that actually answers**
+(`ai_cfo/providers`).
 
 **Context assembly (7.2, FR-6.2 / architecture §4.1).** Before an answer is
 produced, `build_context` resolves the company's current KPI snapshot and turns
@@ -11,22 +12,28 @@ it into the block in `ai_cfo/context.py`. The snapshot's id is stored on the
 assistant turn, so every answer can be traced back to the exact figures behind
 it. Raw transactions are never part of that context — see the context module.
 
-**The placeholder reply (decided in 7.1).** A question still has to produce an
-assistant turn, otherwise the conversation is one-sided and neither the UI nor
-the persistence can be exercised end to end. So `answer_question` writes a
-fixed, clearly-labelled placeholder. It is deliberately inert: it states that
-the assistant isn't connected yet, and it contains **no figures, no advice and
-no reference to the company's data**. Storing a plausible-sounding stub answer
-would be far worse than storing an obviously unfinished one — a demo could show
-it and a reader could believe it. 7.4 replaces the reply itself with a real
-provider call, fed the messages `build_prompt` already assembles.
+**The provider is chosen by configuration, never by this module (7.4, FR-6.4).**
+`answer_question` asks `providers.get_provider()` for whatever `LLM_PROVIDER`
+names and hands it the assembled messages. Nothing here knows a vendor's name,
+a model id or an HTTP endpoint, which is what makes the swap in FR-6.4 a config
+change rather than an edit to the feature.
+
+**The placeholder reply (decided in 7.1, still standing).** With no key
+configured — a fresh clone, CI, or this project before the key existed — the
+provider raises `LLMNotConfigured` and the fixed, clearly-labelled placeholder
+is stored instead. It is deliberately inert: it states that the assistant isn't
+connected, and it contains **no figures, no advice and no reference to the
+company's data**. Storing a plausible-sounding stub answer would be far worse
+than storing an obviously unfinished one — a demo could show it and a reader
+could believe it. Real provider *failures* are not this case: they raise, so a
+broken call is reported rather than recorded as something the assistant said.
 
 **Placeholder turns are not replayed into the prompt.** Every conversation
-started before 7.4 holds assistant turns saying the assistant isn't connected.
-Feeding those back would teach the model that it had already refused to help
-and invite it to keep doing so — so `replayable_history` drops them. Dropping
-them is safe precisely because they are inert: nothing was said that a later
-answer could need.
+started before a key was configured holds assistant turns saying the assistant
+isn't connected. Feeding those back would teach the model that it had already
+refused to help and invite it to keep doing so — so `replayable_history` drops
+them. Dropping them is safe precisely because they are inert: nothing was said
+that a later answer could need.
 """
 
 from __future__ import annotations
@@ -43,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai_cfo.context import CfoContext, from_snapshot
 from app.ai_cfo.models import ROLE_ASSISTANT, ROLE_USER, ChatMessage, ChatSession
 from app.ai_cfo.prompt import PromptMessage, build_messages
+from app.ai_cfo.providers import LLMNotConfigured, LLMProvider, get_provider
 from app.companies.models import Company
 from app.financial_engine.calculations import month_range
 from app.financial_engine.service import (
@@ -263,21 +271,34 @@ async def build_prompt(
 
 
 async def answer_question(
-    db: AsyncSession, session: ChatSession, question: str
+    db: AsyncSession,
+    session: ChatSession,
+    question: str,
+    provider: LLMProvider | None = None,
 ) -> tuple[str, uuid.UUID | None]:
     """Produce the assistant's reply and the KPI snapshot it was grounded in.
 
-    Everything except the model call is done here: the context is assembled
-    (7.2), the prompt is built around it (7.3), and the snapshot id is recorded
-    on the turn. The reply itself stays the fixed placeholder until 7.4 swaps in
-    the provider — a deliberate split, since the audit trail is verifiable on
-    its own and is then already correct before there is any generated text to
-    audit.
+    The whole path, as of 7.4: the context is assembled (7.2), the prompt is
+    built around it (7.3), the configured provider is asked for an answer
+    (7.4), and the snapshot id is returned so the turn records which figures
+    that answer was built from.
 
-    The prompt is assembled on every real question even though nothing sends it
-    yet. That costs a few string joins and buys the guarantee that 7.4 inherits
-    an assembly path already exercised against real conversations and real
-    figures, rather than one that has only ever seen tests.
+    **With no provider connected, the placeholder still stands.** An empty
+    `LLM_API_KEY` surfaces as `LLMNotConfigured`, which is caught here and
+    answered with the inert 7.1 text — no figures, no advice, and an explicit
+    statement that the assistant isn't wired up. That is the state a fresh
+    clone and the test suite run in, and it stays a working screen rather than
+    an error.
+
+    **Every other provider failure propagates.** An outage, a rejected key or a
+    blocked prompt raises out of here so that `post_message` never commits, and
+    the router turns it into a 503. Writing "sorry, something went wrong" into
+    `chat_messages` would put words in the assistant's mouth in a table that is
+    meant to be an audit trail, and `replayable_history` would then feed that
+    apology back into later prompts.
+
+    `provider` is injectable for tests; production passes nothing and gets
+    whatever `LLM_PROVIDER` names.
 
     `question` is passed through, never inspected. Branching on what was asked —
     picking a different period for a runway question, say — would be the
@@ -285,22 +306,48 @@ async def answer_question(
     small enough that it can simply always carry everything.
     """
     messages, context = await build_prompt(db, session, question)
-    logger.debug(
-        "Assembled %d prompt messages for session %s (snapshot %s)",
-        len(messages),
+    snapshot_id = None if context is None else context.snapshot_id
+    provider = provider or get_provider()
+
+    try:
+        completion = await provider.complete(messages)
+    except LLMNotConfigured:
+        logger.info(
+            "No LLM provider connected; answering session %s with the placeholder.",
+            session.id,
+        )
+        return PLACEHOLDER_REPLY, snapshot_id
+
+    # Logged at INFO so a run can be audited for what answered and at what
+    # cost. The prompt and the answer are not logged at any level: between them
+    # they carry the company's figures and the founder's questions about them.
+    usage = completion.usage
+    logger.info(
+        "AI CFO answered session %s via %s/%s (snapshot %s, finish %s, tokens %s/%s)",
         session.id,
-        None if context is None else context.snapshot_id,
+        completion.provider,
+        completion.model,
+        snapshot_id,
+        completion.finish_reason,
+        None if usage is None else usage.prompt_tokens,
+        None if usage is None else usage.completion_tokens,
     )
-    return PLACEHOLDER_REPLY, None if context is None else context.snapshot_id
+    return completion.text, snapshot_id
 
 
 async def post_message(
-    db: AsyncSession, session: ChatSession, content: str
+    db: AsyncSession,
+    session: ChatSession,
+    content: str,
+    provider: LLMProvider | None = None,
 ) -> tuple[ChatMessage, ChatMessage]:
     """Record a question and the assistant's answer as one exchange (FR-6.1).
 
     Both turns are written in a single transaction, so a conversation can never
     end up holding a question with no answer or an answer with no question.
+    That also covers the 7.4 failure case: if the provider raises, nothing is
+    added, and the question can simply be asked again rather than sitting in
+    the history waiting for an answer that never came.
     """
     asked_at = _now()
     user_message = ChatMessage(
@@ -309,7 +356,7 @@ async def post_message(
         content=content,
         created_at=asked_at,
     )
-    reply, snapshot_id = await answer_question(db, session, content)
+    reply, snapshot_id = await answer_question(db, session, content, provider)
     assistant_message = ChatMessage(
         session_id=session.id,
         role=ROLE_ASSISTANT,

@@ -167,17 +167,27 @@ state; a lever at 0 comes back **blank**, because blank is how this form spells
 Decimal fields as strings (`ScenarioAssumptionsRead`), like every other figure
 the API returns — coerce, don't assume.
 
-## AI CFO chat (Phase 7.1–7.3)
+## AI CFO chat (Phase 7)
 
 `/chat` (auth-guarded, linked from the dashboard and `/scenarios`) is the
 conversational interface (FR-6.1): a conversation list, a transcript, and a
 composer. Conversations persist and reopen where you left off.
 
-**It is honest that it isn't finished.** No model is connected yet — the page
-carries a "Not connected yet" notice and the assistant replies with a
-placeholder that quotes no figures. A screen that looked like a working
-assistant and simply gave poor answers would be worse than one that says what it
-is.
+**The status banner is asked for, never hard-coded (7.4, FR-6.4).**
+`getChatProvider` reads `GET /api/v1/chat/provider` on load, and the banner
+either names the model that writes the answers or says no model is configured —
+in which case the assistant replies with a placeholder that quotes no figures.
+Through 7.1–7.3 this was a fixed "Not connected yet" notice, which was true when
+written and would have become a lie the moment a key was added. A claim about
+the system that the system itself reports cannot go stale.
+
+**Sending can now fail, and the page says so.** A model call takes seconds and
+can come back 503. Two consequences, both invisible while the placeholder
+returned instantly: the failed question goes **back into the composer** rather
+than making someone retype it, and the "Thinking…" indicator renders on an
+**empty** transcript too — otherwise the first question of a new conversation
+sat under unchanged suggestion chips for the length of the call and the screen
+looked ignored.
 
 **"What the assistant can see" (7.2, FR-6.2).** A collapsed panel under the
 composer shows the exact set of precomputed figures an answer is built from —
