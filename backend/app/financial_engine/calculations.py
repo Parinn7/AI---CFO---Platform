@@ -14,6 +14,9 @@ paise (2 dp).
 * `compute_kpis` → burn rate / runway / margins / revenue growth (task 4.3).
 * `monthly_history` → a continuous, gap-filled N-month performance series for
   the historical/12-month view (task 4.4, FR-3.5 / FR-4.6).
+* `compute_category_breakdown` → per-category totals and share-of-type over a
+  period — the line-item half of a report (task 8.1, FR-7.1). Takes
+  `(category, amount, type)` rows rather than dated ones.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Iterable
+from typing import Hashable, Iterable
 
 _CENTS = Decimal("0.01")
 ZERO = Decimal("0.00")
@@ -282,3 +285,76 @@ def monthly_history(
             )
         )
     return series
+
+
+# --- Category breakdown (task 8.1, FR-7.1) ---
+#
+# "Revenue was ₹12L and expenses were ₹15L" is a summary; "₹9L of it was
+# payroll" is a report. The split is pure aggregation over the same rows the
+# totals come from — the only new idea is `share_pct`, which is a category's
+# spend as a percentage of **its own type's** total, not of every rupee that
+# moved. Mixing income and expenses into one denominator would produce shares
+# that sum to something meaningless.
+
+
+# A row as this breakdown sees it: (category key, amount magnitude,
+# "income"|"expense"). The key is the category id, or None for uncategorized.
+CategoryRow = tuple[Hashable | None, Decimal, str]
+
+
+@dataclass(frozen=True)
+class CategoryTotal:
+    """One category's contribution over a period.
+
+    `share_pct` is None when that type had no total to take a share of — a
+    genuinely undefined ratio, kept null for the same reason the KPI columns
+    are (a 0% share reads as "spent nothing here", which is a different claim).
+    """
+
+    group: Hashable | None
+    type: str  # "income" | "expense"
+    total: Decimal
+    share_pct: Decimal | None
+    count: int
+
+
+def compute_category_breakdown(rows: Iterable[CategoryRow]) -> list[CategoryTotal]:
+    """Total each category over `rows` — income groups first, largest first
+    within each type.
+
+    Ordering is part of the output rather than the caller's problem: a report
+    and a chart legend that disagree on which expense was biggest are two
+    different claims about the same period."""
+    buckets: dict[tuple[Hashable | None, str], list] = {}
+    type_totals: dict[str, Decimal] = {"income": ZERO, "expense": ZERO}
+
+    for group, amount, txn_type in rows:
+        if txn_type not in type_totals:
+            continue  # defensive; the DB constrains `type`
+        value = Decimal(amount)
+        bucket = buckets.setdefault((group, txn_type), [ZERO, 0])
+        bucket[0] += value
+        bucket[1] += 1
+        type_totals[txn_type] += value
+
+    totals: list[CategoryTotal] = []
+    for (group, txn_type), (total, count) in buckets.items():
+        denominator = type_totals[txn_type]
+        totals.append(
+            CategoryTotal(
+                group=group,
+                type=txn_type,
+                total=_q(total),
+                share_pct=(
+                    _ratio(total * 100, denominator) if denominator > 0 else None
+                ),
+                count=count,
+            )
+        )
+
+    # Income before expenses, then descending value. The trailing `str(group)`
+    # only breaks exact ties, so the order is stable rather than dependent on
+    # dict insertion — two categories with identical totals must not swap places
+    # between two renders of the same report.
+    totals.sort(key=lambda t: (t.type != "income", -t.total, str(t.group)))
+    return totals

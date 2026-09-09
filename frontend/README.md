@@ -20,6 +20,8 @@ frontend/
     data/manual/       # /data/manual — guided plain-language manual entry (FR-2.3)
     transactions/      # /transactions — list + inline edit/delete of transactions (FR-2.5)
     scenarios/         # /scenarios — define + simulate a "what if?" scenario (FR-5.1/5.2/5.3)
+    chat/              # /chat — AI CFO conversation, with what it can see and is told (FR-6.x)
+    reports/           # /reports — Monthly Financial Report for one calendar month (FR-7.1)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm,
                        #   StatCard, KpiCards, ScenarioComparison, DashboardCharts —
@@ -233,6 +235,36 @@ Details it gets right:
 - **The advisory disclaimer (FR-6.5) is shown from the start**, under the
   composer, because assistant-labelled text exists from the start. Enter sends,
   Shift+Enter breaks a line.
+
+## Monthly report (Phase 8.1)
+
+`/reports` (auth-guarded, linked from the dashboard, `/chat` and `/scenarios`)
+renders the Monthly Financial Report (FR-7.1) — one calendar month on one page:
+revenue / expenses / net / cash on hand, the four KPIs, where the money went,
+the movement against the previous month, a six-month trend, and anything
+flagged. A `<select>` of the months that actually have activity re-scopes the
+whole page.
+
+**The screen computes nothing.** Every figure comes from
+`GET /api/v1/reports/monthly` exactly as returned; the page only formats. That
+is also why `KpiCards` and `RevenueExpenseChart` are **reused** here rather than
+reimplemented — the report's `kpis` block is the same `kpi_snapshots` row the
+dashboard reads, so the same tiles drawing it keeps a report and a dashboard
+from making two different claims about one month.
+
+- **The default month is the latest one with data**, not the current month —
+  books kept in arrears make "this month" empty, and a report of zeros is a
+  worse first impression than the last real month.
+- **A month with nothing recorded still renders**, above an explicit note that
+  the zeros are genuine rather than a loading failure. A company with no data at
+  all gets the empty state instead (the API answers `404`, which this page reads
+  as "nothing yet", not as an error).
+- **Anomaly detection is re-run on load**, as the dashboard does, so a report
+  opened directly doesn't quote stale flags. Idempotent and non-fatal.
+- **"Change" is coloured by whether it's good news**, not by its sign — rising
+  expenses are red, rising revenue is green.
+- **No PDF button yet.** Export is task 8.4; a dead button would be worse than
+  none.
 
 ## Company profile (Phase 2.3)
 

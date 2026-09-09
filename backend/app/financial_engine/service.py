@@ -18,10 +18,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.financial_engine.calculations import (
+    CategoryTotal,
     KpiValues,
     MonthlyCashFlow,
     MonthlyPerformance,
     Totals,
+    compute_category_breakdown,
     compute_kpis,
     compute_monthly_cash_flow,
     compute_totals,
@@ -119,6 +121,44 @@ async def company_cash_flow(
     return compute_monthly_cash_flow(rows)
 
 
+async def company_category_breakdown(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    start_date: dt.date | None = None,
+    end_date: dt.date | None = None,
+) -> list[CategoryTotal]:
+    """Per-category totals for a company over an optional period (task 8.1).
+
+    `group` on each row is the `categories.id` — or None for transactions the
+    rules couldn't categorize, which are kept as their own bucket rather than
+    dropped. A report that quietly omits uncategorized spend understates
+    expenses, which is worse than an ugly "Uncategorized" line."""
+    stmt = select(
+        Transaction.category_id, Transaction.amount, Transaction.type
+    ).where(Transaction.company_id == company_id)
+    if start_date is not None:
+        stmt = stmt.where(Transaction.date >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(Transaction.date <= end_date)
+    result = await db.execute(stmt)
+    return compute_category_breakdown(tuple(row) for row in result.all())
+
+
+async def cash_on_hand(
+    db: AsyncSession, company_id: uuid.UUID, as_of: dt.date
+) -> Decimal:
+    """Cumulative net cash through `as_of` — every rupee in, minus every rupee
+    out, from the first transaction on record (opening cash ₹0).
+
+    The runway denominator's numerator, factored out because a report states
+    the same closing-cash figure the runway was divided from. Two call sites
+    computing "cash on hand" slightly differently is exactly the drift that
+    makes a report disagree with the dashboard.
+    """
+    cumulative = compute_totals(await _load_rows(db, company_id, None, as_of))
+    return cumulative.total_income - cumulative.total_expenses
+
+
 # --- KPI snapshots (task 4.3, FR-4.1–4.5) ---
 
 
@@ -155,8 +195,7 @@ async def compute_period_kpis(
     )
 
     # Cumulative cash position as of period_end (all transactions up to then).
-    cumulative = compute_totals(await _load_rows(db, company_id, None, period_end))
-    cash_on_hand = cumulative.total_income - cumulative.total_expenses
+    closing_cash = await cash_on_hand(db, company_id, period_end)
 
     prev_start, prev_end = previous_window(period_start, period_end)
     prev_totals = compute_totals(
@@ -167,7 +206,7 @@ async def compute_period_kpis(
         total_revenue=period_totals.total_income,
         total_expenses=period_totals.total_expenses,
         num_months=months_in_period(period_start, period_end),
-        cash_on_hand=cash_on_hand,
+        cash_on_hand=closing_cash,
         prev_revenue=prev_totals.total_income,
     )
 

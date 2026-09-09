@@ -16,7 +16,7 @@ backend/
     financial_engine/    # Phase 4 — deterministic categorization/KPI/cash-flow/anomaly math: categorization, calculations, anomaly, service, schemas, models (kpi_snapshots), router (FR-3.x, FR-4.x)
     scenarios/           # Phase 6 — deterministic scenario simulation: simulation, service, schemas, router (FR-5.x)
     ai_cfo/              # Phase 7 — chat, KPI context assembly, system prompt, LLM provider: models (chat_sessions/chat_messages), context, prompt, providers/ (base, gemini, null), service, schemas, router (FR-6.x)
-    reports/             # Phase 9 — report generation + PDF export (FR-7.x)
+    reports/             # Phase 8 — deterministic report assembly: schemas, service, router (FR-7.x)
   migrations/            # Alembic: env.py + versions/ (0001 users+companies; 0002 categories+seed; 0003 upload_batches+transactions; 0004 kpi_snapshots; 0005 scenarios; 0006 chat_sessions+chat_messages)
   tests/                 # pytest smoke + feature tests
   alembic.ini
@@ -24,8 +24,8 @@ backend/
   .env.example
 ```
 
-`reports` is still a package placeholder — it gains its router/service in
-Phase 8. `ai_cfo` is complete: Phase 7 ends with 7.4.
+`ai_cfo` is complete: Phase 7 ends with 7.4. `reports` opened with 8.1 (the
+monthly report); the board and investor reports and PDF export follow in 8.2–8.4.
 
 ## Setup
 
@@ -528,6 +528,56 @@ LLM_MODEL=gemini-3.8-flash     # `gemini-flash-latest` tracks the newest flash
   `CURRENT_TIMESTAMP` has second resolution (a whole fast conversation ties).
 - **Access is scoped by company ownership**, not `chat_sessions.user_id` — the
   company carries the data; `user_id` records who started the conversation.
+
+## Reports (Phase 8)
+
+Structured reports assembled from Financial Engine output (FR-7.x). **8.1 —
+the Monthly Financial Report (FR-7.1)** is in; the board report (8.2), investor
+readiness summary (8.3) and PDF export (8.4) follow.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/reports/monthly?company_id=[&month=YYYY-MM]` | One calendar month: KPIs, totals, closing cash, category breakdown, previous-month comparison, six-month trend, flagged expenses. `month` defaults to the latest month with data. `400` on a malformed month, `404` if the company has no transactions at all or isn't yours. |
+
+**A report assembles, it never calculates.** Every figure is engine output, and
+`kpis` is the literal `kpi_snapshots` row the dashboard's tiles and the AI CFO's
+context read — fetched through the shared `snapshot_for_period` get-or-create, so
+generating a report never mints a second row for the same month. The only
+arithmetic in `reports/service.py` is subtracting one already-computed total from
+another for the month-over-month change, and **no LLM writes any part of a
+report** (architecture §4.1 / §5.4).
+
+- **A whole calendar month, always.** Not a rolling 30 days and not the
+  `fiscal_year_start_month` offset — "the July report" must mean 1–31 July to
+  everyone reading it. The snapshot is generated for exactly that window, so the
+  month's `revenue_growth_pct` is growth against the preceding month and its
+  `burn_rate` is that one month's net outflow.
+- **Empty months report; empty companies don't.** A month with no transactions
+  is a real finding — honest zeros, with undefined ratios left null rather than
+  rendered as a 0% that reads like a measurement. A company with *no*
+  transactions has no month to choose, so it's a `404` with a readable reason.
+- **Generation is a read.** No `reports` row is written (see `database/schema.md`
+  §10 for why that table waits for 8.4), and anomaly flags are read as stored
+  rather than re-detected — a `GET` that rewrote `is_flagged_anomaly` would let
+  two people opening the same report see different flags.
+- **Uncategorized spend is a line, not an omission.** The category lines have to
+  add up to the totals printed above them; a report that quietly drops
+  uncategorized transactions understates expenses.
+- **Shares are of their own side of the ledger.** An expense's `share_pct` is a
+  percentage of all expenses — a combined income+expense denominator produces
+  numbers that sum to nothing meaningful.
+
+Two deterministic helpers were added to the engine for this and reused by 8.2/8.3:
+`calculations.compute_category_breakdown` (per-category totals + share of type,
+income first then largest-first, with a stable tiebreak so two renders of one
+report can't reorder) and `service.cash_on_hand` (cumulative net cash through a
+date, factored out of `compute_period_kpis` so a report's closing cash is the
+same number the runway was divided from).
+
+```bash
+curl -s "localhost:8000/api/v1/reports/monthly?company_id=$COMPANY_ID&month=2026-07" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ## Notes
 

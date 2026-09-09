@@ -246,6 +246,9 @@ export default function ChatPage() {
           <Link href="/scenarios" className="underline hover:no-underline text-black/60 dark:text-white/60">
             Scenarios
           </Link>
+          <Link href="/reports" className="underline hover:no-underline text-black/60 dark:text-white/60">
+            Reports
+          </Link>
         </nav>
       </header>
 

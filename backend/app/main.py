@@ -21,6 +21,7 @@ from app.transactions.router import (
 from app.financial_engine.router import router as financial_router
 from app.scenarios.router import router as scenarios_router
 from app.ai_cfo.router import router as ai_cfo_router
+from app.reports.router import router as reports_router
 from app.core.config import settings
 from app.core.database import check_connection, dispose_engine
 
@@ -81,6 +82,7 @@ api_router.include_router(transactions_router)
 api_router.include_router(financial_router)
 api_router.include_router(scenarios_router)
 api_router.include_router(ai_cfo_router)
+api_router.include_router(reports_router)
 
 app.include_router(api_router)
 

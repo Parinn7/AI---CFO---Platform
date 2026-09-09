@@ -60,7 +60,7 @@ The system follows a standard three-tier architecture with an integrated AI laye
     /financial_engine  # revenue/expense calc, cash flow, KPIs, anomaly detection
     /scenarios      # scenario simulation logic
     /ai_cfo         # LLM orchestration, prompt construction, chat history, /providers (swappable LLM vendors)
-    /reports        # report generation, PDF export
+    /reports        # report generation (monthly/board/investor), PDF export
     /core           # config, db session, security utils, shared schemas
   /tests
 ```
@@ -216,6 +216,54 @@ Decisions made in 7.1:
 
 ### 5.4 Report Generation
 `User requests report` → `Report Generator pulls KPIs, trends, and (optionally) AI-generated commentary` → `Renders to PDF` → `Stored/returned for download`
+
+**As implemented (task 8.1, FR-7.1) — the Monthly Financial Report.**
+`GET /api/v1/reports/monthly?company_id=[&month=YYYY-MM]` returns one calendar
+month: the month's `kpi_snapshots` row, its transaction counts and closing cash,
+a per-category breakdown, the movement against the previous month, a six-month
+trend, and the month's flagged expenses. `month` defaults to the latest month
+with data — "this month" is empty for books kept in arrears, so the last real
+month is the better default. A month with no transactions still reports (honest
+zeros, undefined ratios left null); a company with no transactions at all is a
+`404`, because there is no month to choose.
+
+Three decisions worth recording:
+
+- **A report assembles, it never calculates.** Every figure is Financial Engine
+  output, and the KPI block is literally the same `kpi_snapshots` row the
+  dashboard's tiles and the AI CFO's context read — obtained through the shared
+  `snapshot_for_period` get-or-create, so a report never mints its own row. The
+  only arithmetic in `reports/service.py` is subtracting one already-computed
+  total from another for the month-over-month change. §4.1's rule matters most
+  here: a report is the artefact that leaves the building, so a figure in one
+  disagreeing with the dashboard would be a defect nobody catches until a board
+  meeting. **No LLM writes any part of a report** — the "(optionally)
+  AI-generated commentary" in the flow above stays unexercised in the MVP.
+- **The month is a whole calendar month**, not a rolling 30 days and not the
+  `companies.fiscal_year_start_month` offset: "the July report" must mean 1–31
+  July to everyone who reads it. Because the KPI snapshot is generated for
+  exactly that window, the month's `revenue_growth_pct` is growth against the
+  preceding month and its `burn_rate` is that single month's net outflow.
+- **Generation is a read.** No `reports` row is written (see `schema.md` §10 for
+  why the table waits for 8.4), and anomaly flags are *read* rather than
+  re-detected — a `GET` that rewrote `is_flagged_anomaly` would let two people
+  opening the same report see different flags. Detection is re-run by the
+  screens that own it.
+
+New engine helpers behind it, both deterministic and reused by 8.2/8.3:
+`calculations.compute_category_breakdown` (per-category totals plus a share of
+that category's **own type** — mixing income and expenses into one denominator
+produces shares that sum to nothing meaningful) and `service.cash_on_hand`
+(cumulative net cash through a date, factored out of `compute_period_kpis` so a
+report's closing-cash figure is the same number the runway was divided from).
+Uncategorized transactions are reported as their own line, never dropped: the
+lines have to add up to the totals printed above them.
+
+The screen is `/reports` (frontend), which reuses `KpiCards` and
+`RevenueExpenseChart` from the dashboard rather than reimplementing them — a
+report and a dashboard drawing the same month differently would be two claims
+about one period. **PDF export is task 8.4**, so the screen deliberately carries
+no export button yet.
 
 ## 6. Database
 

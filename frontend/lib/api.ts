@@ -838,3 +838,88 @@ export type ChatProvider = {
 export function getChatProvider(token: string): Promise<ChatProvider> {
   return apiGet<ChatProvider>("/api/v1/chat/provider", token);
 }
+
+/* --- Reports (Phase 8, FR-7.x) --- */
+
+/** The company a report is about, carried on the report itself so an exported
+ * copy still names its subject once it's away from the app. */
+export type ReportCompany = {
+  id: string;
+  name: string;
+  industry: string | null;
+  currency: string;
+};
+
+/** One category's line in a report's breakdown. `share_pct` is a share of that
+ * line's **own type** (an expense as a % of all expenses), null when the type
+ * had no total to take a share of. "Uncategorized" is a real line, not an
+ * omission — the lines have to add up to the totals printed above them. */
+export type CategoryLine = {
+  category_id: string | null;
+  name: string;
+  type: "income" | "expense";
+  total: string;
+  share_pct: string | null;
+  transaction_count: number;
+};
+
+/** The month before the reported one, and the movement between them.
+ * `has_data` false means nothing was recorded then — the changes are
+ * differences against zero, which is true but means "no record", not "the
+ * business did nothing". */
+export type MonthComparison = {
+  month: string;
+  has_data: boolean;
+  total_revenue: string;
+  total_expenses: string;
+  net_cash_flow: string;
+  revenue_change: string;
+  expenses_change: string;
+  net_change: string;
+};
+
+/** A flagged expense inside the reported month (FR-3.6). */
+export type ReportAnomaly = {
+  id: string;
+  date: string;
+  description: string | null;
+  category_name: string;
+  amount: string;
+};
+
+/** The Monthly Financial Report (8.1, FR-7.1). Every figure is Financial Engine
+ * output — `kpis` is the literal `kpi_snapshots` row the dashboard's tiles and
+ * the AI CFO's context read, so all three quote one set of numbers rather than
+ * three that happen to agree. No LLM writes any part of it (architecture §4.1). */
+export type MonthlyReport = {
+  report_type: "monthly";
+  company: ReportCompany;
+  month: string;
+  period_start: string;
+  period_end: string;
+  generated_at: string;
+  kpis: KpiSnapshot;
+  transaction_count: number;
+  income_count: number;
+  expense_count: number;
+  closing_cash: string;
+  categories: CategoryLine[];
+  comparison: MonthComparison;
+  trend: MonthlyPerformance[];
+  anomalies: ReportAnomaly[];
+};
+
+/** Generate the monthly report for `month` ("YYYY-MM"), or for the latest month
+ * with data when omitted. `404` when the company has no transactions at all —
+ * a company with nothing recorded has no month to report on. */
+export function getMonthlyReport(
+  companyId: string,
+  token: string,
+  month?: string,
+): Promise<MonthlyReport> {
+  const query = month ? `&month=${month}` : "";
+  return apiGet<MonthlyReport>(
+    `/api/v1/reports/monthly?company_id=${companyId}${query}`,
+    token,
+  );
+}

@@ -161,6 +161,21 @@ Precomputed KPI values, stored per company per period. This is the table the AI 
 | file_path | text | location of generated PDF |
 | generated_at | timestamptz | |
 
+**Implementation note (task 8.1): this table does not exist yet — deliberately.**
+Phase 8 opens with the Monthly Financial Report (FR-7.1), which is **generated
+on demand and not stored**: `GET /api/v1/reports/monthly` assembles it from the
+Financial Engine on every request. Every column above except `file_path` is
+already derivable from the request, and `file_path` is a record of an exported
+*file* — until PDF export (task 8.4) produces one, there is nothing to point at,
+and a row with a null `file_path` would record only that someone once looked at
+a screen.
+
+The deeper reason is staleness. A report is a pure function of the company's
+transactions, so regenerating it is one round of aggregation and can never
+disagree with the data it describes; a stored copy can. The table lands with
+the export that needs it, and `type` is already fixed by
+`reports.schemas.REPORT_TYPE_MONTHLY` and its siblings.
+
 ---
 
 ## Entity Relationship Summary

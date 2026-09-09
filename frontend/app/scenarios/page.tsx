@@ -374,6 +374,12 @@ export default function ScenariosPage() {
             AI CFO
           </Link>
           <Link
+            href="/reports"
+            className="underline hover:no-underline text-black/60 dark:text-white/60"
+          >
+            Reports
+          </Link>
+          <Link
             href="/transactions"
             className="underline hover:no-underline text-black/60 dark:text-white/60"
           >
