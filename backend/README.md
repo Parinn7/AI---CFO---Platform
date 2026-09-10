@@ -24,8 +24,9 @@ backend/
   .env.example
 ```
 
-`ai_cfo` is complete: Phase 7 ends with 7.4. `reports` opened with 8.1 (the
-monthly report); the board and investor reports and PDF export follow in 8.2–8.4.
+`ai_cfo` is complete: Phase 7 ends with 7.4. `reports` holds 8.1 (the monthly
+report) and 8.2 (the board report); the investor readiness summary and PDF
+export follow in 8.3–8.4.
 
 ## Setup
 
@@ -532,12 +533,13 @@ LLM_MODEL=gemini-3.8-flash     # `gemini-flash-latest` tracks the newest flash
 ## Reports (Phase 8)
 
 Structured reports assembled from Financial Engine output (FR-7.x). **8.1 —
-the Monthly Financial Report (FR-7.1)** is in; the board report (8.2), investor
-readiness summary (8.3) and PDF export (8.4) follow.
+the Monthly Financial Report (FR-7.1)** and **8.2 — the Board Report (FR-7.2)**
+are in; the investor readiness summary (8.3) and PDF export (8.4) follow.
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/reports/monthly?company_id=[&month=YYYY-MM]` | One calendar month: KPIs, totals, closing cash, category breakdown, previous-month comparison, six-month trend, flagged expenses. `month` defaults to the latest month with data. `400` on a malformed month, `404` if the company has no transactions at all or isn't yours. |
+| `GET /api/v1/reports/board?company_id=[&period=quarter\|year][&end_month=YYYY-MM]` | A trailing quarter (default) or year: the period's KPI snapshot beside the equal-length period before it, the movement between them, cash at both ends, the month-by-month series, the cost structure, flagged spend grouped by category-month, and the newest saved scenarios. `end_month` defaults to the latest month with data. `422` on an unknown period, `400` on a malformed month, `404` as above. |
 
 **A report assembles, it never calculates.** Every figure is engine output, and
 `kpis` is the literal `kpi_snapshots` row the dashboard's tiles and the AI CFO's
@@ -567,6 +569,35 @@ report** (architecture §4.1 / §5.4).
   percentage of all expenses — a combined income+expense denominator produces
   numbers that sum to nothing meaningful.
 
+**The board report (8.2) is the same assembly, aimed at a different reader.** A
+board or investor asks where the business is heading, not what one month's line
+items were, so it states a period rather than a month:
+
+- **A trailing window, not a fiscal quarter.** `end_month` defaults to the latest
+  month with data and the window is the 3 (or 12) calendar months ending there —
+  "the last quarter" means *of available data*, as it does everywhere else in
+  this codebase, because books kept in arrears would otherwise produce a quarter
+  two-thirds empty that reads as a collapse. A calendar or fiscal quarter is
+  still available by naming its last month (`period=quarter&end_month=2026-03`
+  is Jan–Mar).
+- **Both periods are snapshots.** The previous period is the preceding N calendar
+  months and gets its own `kpi_snapshots` row through the same get-or-create, so
+  a comparison is between two objects of the same kind. (The engine's
+  `revenue_growth_pct` measures against its own equal-length *day* window, which
+  is the same window whenever the two periods have equal day counts — always for
+  the year, and for quarters whose month lengths match.)
+- **Cash is stated at both ends.** `closing − opening` is the period's net cash
+  flow by construction, so a reader can reconcile the runway's numerator against
+  the period's result instead of taking both on faith.
+- **Flagged spend is grouped as the rule sees it** — one category in one month —
+  because a board reads exposure ("marketing ran ₹25L above trend in February"),
+  not individual card charges. Read as stored, never re-detected.
+- **Saved scenarios travel verbatim** out of `scenarios.result`, capped at the
+  newest few. Nothing is re-run: a board paper says what a plan looked like when
+  it was modelled, and re-deriving it against today's data would silently
+  restate the plan. A row whose stored result predates the current shape is
+  skipped rather than guessed at.
+
 Two deterministic helpers were added to the engine for this and reused by 8.2/8.3:
 `calculations.compute_category_breakdown` (per-category totals + share of type,
 income first then largest-first, with a stable tiebreak so two renders of one
@@ -576,6 +607,9 @@ same number the runway was divided from).
 
 ```bash
 curl -s "localhost:8000/api/v1/reports/monthly?company_id=$COMPANY_ID&month=2026-07" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -s "localhost:8000/api/v1/reports/board?company_id=$COMPANY_ID&period=year" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

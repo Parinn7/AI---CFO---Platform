@@ -109,3 +109,127 @@ class MonthlyReport(BaseModel):
     comparison: MonthComparison
     trend: list[MonthlyPerformanceRead]
     anomalies: list[ReportAnomaly]
+
+
+# --- Board Report (task 8.2, FR-7.2) ---
+
+REPORT_TYPE_BOARD = "board"
+
+#: The reporting windows a board report can be asked for, and their length in
+#: months. A board meets on a quarter; an investor asks for the year. Both are
+#: **trailing** windows anchored on a month, not fiscal-calendar quarters — see
+#: `reports.service.generate_board_report` for why.
+BOARD_PERIODS: dict[str, int] = {"quarter": 3, "year": 12}
+
+
+class PeriodTotals(BaseModel):
+    """One reporting period's engine figures, and whether anything is recorded
+    in it.
+
+    `kpis` is a real `kpi_snapshots` row for that exact window — the board
+    report states the previous period the same way it states the current one,
+    off the same table, rather than one being a snapshot and the other a
+    hand-rolled total. `has_data` false means nothing was recorded in the
+    window: the figures are honest zeros, but zeros that mean "no record", not
+    "no activity"."""
+
+    start_month: str  # "YYYY-MM"
+    end_month: str  # "YYYY-MM"
+    period_start: dt.date
+    period_end: dt.date
+    has_data: bool
+    kpis: KpiSnapshotRead
+    transaction_count: int
+
+
+class PeriodMovement(BaseModel):
+    """The movement between the previous period and this one.
+
+    Every field is one already-computed total minus another — the only
+    arithmetic a report is allowed to do (architecture §4.1). Percentage growth
+    is deliberately absent here: `kpis.revenue_growth_pct` already states it,
+    measured against exactly the window `BoardReport.previous` describes, so a
+    second percentage computed here could only agree or contradict."""
+
+    revenue_change: Decimal
+    expenses_change: Decimal
+    net_change: Decimal
+    burn_rate_change: Decimal
+
+
+class CashPosition(BaseModel):
+    """Cash at the start of the period, at the end, and the movement between.
+
+    The first question a board asks. `net_change` is `closing − opening`, which
+    is the period's net cash flow by construction — stated twice on purpose, so
+    a reader can see the runway's numerator and the period's result reconcile."""
+
+    opening_cash: Decimal
+    closing_cash: Decimal
+    net_change: Decimal
+
+
+class WatchItem(BaseModel):
+    """A flagged expense spike, grouped as the detection rule sees it — one
+    category in one month (FR-3.6).
+
+    A board reads exposure, not line items: "marketing ran ₹2L above trend in
+    February" rather than four card charges. The grouping is a regrouping of
+    the stored `is_flagged_anomaly` rows, not a new metric."""
+
+    month: str  # "YYYY-MM"
+    category_name: str
+    total: Decimal
+    transaction_count: int
+
+
+class ScenarioSummary(BaseModel):
+    """A saved what-if (FR-5.4), summarised for the board pack.
+
+    Read verbatim out of `scenarios.result` as it was computed at save time —
+    the same figures the Scenario Simulator showed. Nothing is re-run: a board
+    paper says what the plan looked like when it was modelled, and re-deriving
+    it against today's data would silently restate the plan."""
+
+    id: uuid.UUID
+    name: str
+    created_at: dt.datetime
+    period_start: dt.date
+    period_end: dt.date
+    revenue_change: Decimal
+    expenses_change: Decimal
+    net_cash_flow_change: Decimal
+    burn_rate_change: Decimal
+    baseline_runway_months: Decimal | None
+    scenario_runway_months: Decimal | None
+
+
+class BoardReport(BaseModel):
+    """The Board Report (FR-7.2) — a period's trajectory, for a reader who
+    wasn't in the building.
+
+    Where the monthly report answers "what happened in July", this answers
+    "where is this business heading": the period's KPIs against the equal-length
+    period before it, the cash position at both ends, the month-by-month shape
+    of the period, what the money is being spent on, what's being watched, and
+    what plans have been modelled.
+
+    Every figure is Financial Engine output — `kpis` on both periods are real
+    `kpi_snapshots` rows — and **no LLM writes any part of it** (architecture
+    §4.1 / §5.4)."""
+
+    report_type: str = REPORT_TYPE_BOARD
+    company: ReportCompany
+    period: str  # "quarter" | "year"
+    num_months: int
+    generated_at: dt.datetime
+
+    current: PeriodTotals
+    previous: PeriodTotals
+    movement: PeriodMovement
+    cash: CashPosition
+
+    monthly: list[MonthlyPerformanceRead]
+    categories: list[CategoryLine]
+    watch_items: list[WatchItem]
+    scenarios: list[ScenarioSummary]

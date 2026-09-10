@@ -13,16 +13,21 @@
  *
  * PDF export is task 8.4, so there is no export button yet — a dead one would
  * be worse than none.
+ *
+ * The header, the tabs between report types, the category breakdown and the
+ * empty states moved into `ReportHeader`/`ReportSections` in 8.2, when the board
+ * report needed the same pieces.
  */
 
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { RevenueExpenseChart } from "@/components/DashboardCharts";
 import { KpiCards } from "@/components/KpiCards";
+import { ReportHeader } from "@/components/ReportHeader";
+import { CategoryBreakdown, ReportEmptyState } from "@/components/ReportSections";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -31,7 +36,6 @@ import {
   getCashFlow,
   getMonthlyReport,
   listCompanies,
-  type CategoryLine,
   type Company,
   type MonthlyReport,
 } from "@/lib/api";
@@ -44,7 +48,7 @@ function signed(value: string): string {
 }
 
 export default function ReportsPage() {
-  const { user, token, loading: authLoading, logout } = useAuth();
+  const { user, token, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [company, setCompany] = useState<Company | null>(null);
@@ -127,46 +131,26 @@ export default function ReportsPage() {
 
   return (
     <main className="flex-1 w-full max-w-6xl mx-auto flex flex-col gap-8 p-8">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Monthly report</h1>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-            {report
-              ? `${report.company.name} — ${monthLong(report.month)}`
-              : company?.name ?? "One month of your finances, in full."}
-          </p>
-        </div>
-        <nav className="flex flex-wrap items-center gap-3 text-sm">
-          <Link href="/dashboard" className="underline hover:no-underline text-black/60 dark:text-white/60">
-            Dashboard
-          </Link>
-          <Link href="/chat" className="underline hover:no-underline text-black/60 dark:text-white/60">
-            AI CFO
-          </Link>
-          <Link href="/scenarios" className="underline hover:no-underline text-black/60 dark:text-white/60">
-            Scenarios
-          </Link>
-          <Link href="/transactions" className="underline hover:no-underline text-black/60 dark:text-white/60">
-            Transactions
-          </Link>
-          <button type="button" onClick={logout}
-            className="rounded-md border border-black/15 dark:border-white/20 px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/10 transition-colors">
-            Log out
-          </button>
-        </nav>
-      </header>
+      <ReportHeader
+        title="Monthly report"
+        subtitle={
+          report
+            ? `${report.company.name} — ${monthLong(report.month)}`
+            : company?.name ?? "One month of your finances, in full."
+        }
+      />
 
       {error && <p className="text-sm text-red-500" role="alert">{error}</p>}
 
       {!company ? (
-        <EmptyState
+        <ReportEmptyState
           title="Set up your company first"
           body="A report is about a company's month, so we need a company profile before there's anything to report on."
           href="/company"
           cta="Company profile"
         />
       ) : !hasData ? (
-        <EmptyState
+        <ReportEmptyState
           title="No financial data to report on"
           body="Import a CSV/XLSX or add entries manually — your first monthly report is ready the moment there's a month of data."
           href="/data"
@@ -266,29 +250,7 @@ export default function ReportsPage() {
                 percentage of all expenses.
               </p>
             </div>
-            {report.categories.length === 0 ? (
-              <p className="rounded-xl border border-black/10 dark:border-white/15 p-6 text-center text-sm text-black/50 dark:text-white/50">
-                No transactions in this month to break down.
-              </p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-black/10 dark:border-white/15">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-black/50 dark:text-white/50">
-                    <tr className="border-b border-black/10 dark:border-white/10">
-                      <th className="p-3 font-medium">Category</th>
-                      <th className="p-3 font-medium">Share</th>
-                      <th className="p-3 font-medium text-right">Entries</th>
-                      <th className="p-3 font-medium text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.categories.map((line) => (
-                      <CategoryRow key={`${line.type}-${line.category_id ?? "none"}`} line={line} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <CategoryBreakdown lines={report.categories} />
           </section>
 
           {/* Movement against the previous month. */}
@@ -413,41 +375,6 @@ export default function ReportsPage() {
   );
 }
 
-function CategoryRow({ line }: { line: CategoryLine }) {
-  const share = line.share_pct === null ? null : Number(line.share_pct);
-  return (
-    <tr className="border-b border-black/5 dark:border-white/5 last:border-0">
-      <td className="p-3">
-        {line.name}
-        <span className="ml-2 text-xs text-black/40 dark:text-white/40">
-          {line.type === "income" ? "in" : "out"}
-        </span>
-      </td>
-      <td className="p-3">
-        <div className="flex items-center gap-2">
-          <div className="h-1.5 w-24 shrink-0 rounded-full bg-black/10 dark:bg-white/10">
-            <div
-              className={`h-1.5 rounded-full ${
-                line.type === "income" ? "bg-green-600 dark:bg-green-500" : "bg-black/50 dark:bg-white/50"
-              }`}
-              style={{ width: `${share ?? 0}%` }}
-            />
-          </div>
-          <span className="text-xs text-black/50 dark:text-white/50">
-            {share === null ? "—" : `${share.toFixed(1)}%`}
-          </span>
-        </div>
-      </td>
-      <td className="p-3 text-right text-black/60 dark:text-white/60">
-        {line.transaction_count}
-      </td>
-      <td className="p-3 text-right whitespace-nowrap font-mono">
-        {formatINR(line.total)}
-      </td>
-    </tr>
-  );
-}
-
 function ComparisonRow({
   label, before, after, change, goodWhenUp = false,
 }: {
@@ -476,20 +403,5 @@ function ComparisonRow({
         {signed(change)}
       </td>
     </tr>
-  );
-}
-
-function EmptyState({
-  title, body, href, cta,
-}: { title: string; body: string; href: string; cta: string }) {
-  return (
-    <div className="rounded-xl border border-black/10 dark:border-white/15 p-8 text-center">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-black/60 dark:text-white/60">{body}</p>
-      <Link href={href}
-        className="mt-5 inline-block rounded-md bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity">
-        {cta}
-      </Link>
-    </div>
   );
 }

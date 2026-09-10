@@ -265,6 +265,47 @@ report and a dashboard drawing the same month differently would be two claims
 about one period. **PDF export is task 8.4**, so the screen deliberately carries
 no export button yet.
 
+**As implemented (task 8.2, FR-7.2) — the Board Report.**
+`GET /api/v1/reports/board?company_id=[&period=quarter|year][&end_month=YYYY-MM]`
+returns a **trailing quarter (default) or year**: the period's `kpi_snapshots`
+row beside the equal-length period before it, the movement between them, cash at
+both ends of the period, the month-by-month series, the cost structure, the
+period's flagged spend grouped by category-month, and the newest saved scenarios.
+Same assembly rules as 8.1 — engine figures only, no LLM, nothing stored.
+
+What the board report decides differently from the monthly one, and why:
+
+- **A trailing window, not a fiscal quarter.** `end_month` defaults to the latest
+  month with data, matching what "the last N months" means everywhere else in
+  this system: *of available data*. Books kept in arrears would otherwise produce
+  a quarter two-thirds empty, which reads as a collapse rather than as
+  paperwork. A calendar or fiscal quarter is still reachable by naming its last
+  month, so the `companies.fiscal_year_start_month` case is served without the
+  default lying about the business.
+- **Both periods are snapshots, not one snapshot and one total.** The previous
+  period is the preceding N calendar months and gets its own `kpi_snapshots` row
+  through the shared get-or-create — a comparison between two objects of the same
+  kind. (`revenue_growth_pct` inside a snapshot is measured against the engine's
+  equal-length *day* window, which is the same window whenever the two periods
+  have equal day counts — always for the year.)
+- **Cash is stated at both ends.** `opening_cash` is `cash_on_hand` the day
+  before the period, so `closing − opening` is the period's net cash flow by
+  construction: the runway's numerator and the period's result reconcile on the
+  page rather than being taken on faith.
+- **Flagged spend is grouped as the detection rule sees it** — one category in
+  one month — because a board reads exposure, not individual card charges. Read
+  as stored, never re-detected, for the same reason 8.1 reads them.
+- **Saved scenarios (FR-5.4) travel verbatim** out of `scenarios.result`, capped
+  at the newest few. A board paper says what a plan looked like when it was
+  modelled; re-deriving it against today's data would silently restate the plan.
+
+The screen is `/reports/board`, and 8.2 pulled the report screens' shared parts
+into `components/ReportHeader.tsx` (title, app nav, tabs between report types)
+and `components/ReportSections.tsx` (category breakdown, empty states). The tabs
+are routes rather than local state, so a particular report is a URL. **8.3's
+investor summary adds one line to `REPORT_TABS` and a page**; the assembly rules
+above already cover what it will need.
+
 ## 6. Database
 
 PostgreSQL as the single primary data store for MVP (schema detailed separately in `database/schema.md`). No separate analytics DB needed at this scale — computed KPIs can be cached/snapshotted in a `kpi_snapshots` table rather than requiring a full OLAP setup.

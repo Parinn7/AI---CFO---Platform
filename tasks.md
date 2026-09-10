@@ -65,7 +65,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 ## Phase 8 — Reporting
 *Still running locally at this point — no deployment yet.*
 - [x] **8.1** Monthly Financial Report (FR-7.1).
-- [ ] **8.2** Board Report (FR-7.2).
+- [x] **8.2** Board Report (FR-7.2).
 - [ ] **8.3** Investor Readiness Summary (FR-7.3).
 - [ ] **8.4** PDF export for all report types (FR-7.4).
 - [ ] **8.5** Confirm reports generate correctly for companies whose data came entirely from manual entry, not just uploads.

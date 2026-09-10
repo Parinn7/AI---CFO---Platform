@@ -923,3 +923,101 @@ export function getMonthlyReport(
     token,
   );
 }
+
+/* --- Board Report (8.2, FR-7.2) --- */
+
+/** One reporting period's figures, stated off a real `kpi_snapshots` row — the
+ * board report states "last quarter" the same way it states "this quarter",
+ * rather than one side being a snapshot and the other a hand-rolled total.
+ * `has_data` false means nothing was recorded in the window: honest zeros that
+ * mean "no record", not "no activity". */
+export type PeriodTotals = {
+  start_month: string; // "YYYY-MM"
+  end_month: string; // "YYYY-MM"
+  period_start: string;
+  period_end: string;
+  has_data: boolean;
+  kpis: KpiSnapshot;
+  transaction_count: number;
+};
+
+/** The movement between the previous period and this one — each field one
+ * already-computed engine total minus another. Percentage growth is absent on
+ * purpose: `kpis.revenue_growth_pct` already states it. */
+export type PeriodMovement = {
+  revenue_change: string;
+  expenses_change: string;
+  net_change: string;
+  burn_rate_change: string;
+};
+
+/** Cash at both ends of the period. `net_change` is `closing − opening`, which
+ * is the period's net cash flow by construction. */
+export type CashPosition = {
+  opening_cash: string;
+  closing_cash: string;
+  net_change: string;
+};
+
+/** Flagged spend grouped as the detection rule sees it — one category in one
+ * month (FR-3.6). A board reads exposure, not individual card charges. */
+export type WatchItem = {
+  month: string; // "YYYY-MM"
+  category_name: string;
+  total: string;
+  transaction_count: number;
+};
+
+/** A saved what-if (FR-5.4) as it was computed at save time — nothing is
+ * re-run, so a board pack says what the plan looked like when it was modelled. */
+export type ScenarioSummary = {
+  id: string;
+  name: string;
+  created_at: string;
+  period_start: string;
+  period_end: string;
+  revenue_change: string;
+  expenses_change: string;
+  net_cash_flow_change: string;
+  burn_rate_change: string;
+  baseline_runway_months: string | null;
+  scenario_runway_months: string | null;
+};
+
+/** The Board Report (8.2, FR-7.2) — a trailing quarter or year for a reader who
+ * wasn't in the building. Where the monthly report answers "what happened in
+ * July", this answers "where is this heading". Every figure is Financial Engine
+ * output; no LLM writes any part of it (architecture §4.1). */
+export type BoardReport = {
+  report_type: "board";
+  company: ReportCompany;
+  period: BoardPeriod;
+  num_months: number;
+  generated_at: string;
+  current: PeriodTotals;
+  previous: PeriodTotals;
+  movement: PeriodMovement;
+  cash: CashPosition;
+  monthly: MonthlyPerformance[];
+  categories: CategoryLine[];
+  watch_items: WatchItem[];
+  scenarios: ScenarioSummary[];
+};
+
+/** The windows a board report can be asked for: a trailing quarter (3 months)
+ * or year (12), anchored on the latest month with data. */
+export type BoardPeriod = "quarter" | "year";
+
+/** Generate the board report. `endMonth` ("YYYY-MM") anchors the trailing
+ * window — omit it for the latest month with data, or name it to produce a
+ * calendar/fiscal quarter. `404` when the company has no transactions at all. */
+export function getBoardReport(
+  companyId: string,
+  token: string,
+  period: BoardPeriod = "quarter",
+  endMonth?: string,
+): Promise<BoardReport> {
+  const params = new URLSearchParams({ company_id: companyId, period });
+  if (endMonth) params.set("end_month", endMonth);
+  return apiGet<BoardReport>(`/api/v1/reports/board?${params.toString()}`, token);
+}

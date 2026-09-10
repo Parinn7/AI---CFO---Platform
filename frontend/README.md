@@ -22,6 +22,7 @@ frontend/
     scenarios/         # /scenarios — define + simulate a "what if?" scenario (FR-5.1/5.2/5.3)
     chat/              # /chat — AI CFO conversation, with what it can see and is told (FR-6.x)
     reports/           # /reports — Monthly Financial Report for one calendar month (FR-7.1)
+   reports/board/     # /reports/board — Board Report, a trailing quarter or year (FR-7.2)
     globals.css
   components/          # reusable UI (BackendStatus, AuthForm, AuthNav, CompanyForm,
                        #   StatCard, KpiCards, ScenarioComparison, DashboardCharts —
@@ -265,6 +266,37 @@ from making two different claims about one month.
   expenses are red, rising revenue is green.
 - **No PDF button yet.** Export is task 8.4; a dead button would be worse than
   none.
+
+## Board report (Phase 8.2)
+
+`/reports/board` renders the Board Report (FR-7.2) — the same data, read by
+someone who wasn't in the building. Where `/reports` answers "what happened in
+July", this answers "where is this heading": a trailing **quarter** or **year**
+of KPIs beside the equal-length period before it, cash at both ends of the
+period, the month-by-month shape (both dashboard charts), the cost structure,
+the flagged spend being watched, and the saved scenarios currently modelled.
+
+Two controls: **Quarter / Year** for the window length, and **Ending** for the
+month it closes on — so a calendar or fiscal quarter is produced by naming its
+last month. Switching either re-scopes the whole page from one request.
+
+- **The report screens now share their chrome.** `ReportHeader` carries the
+  title, the app nav and the tabs between report types; `ReportSections` holds
+  the category breakdown and the empty states. Both were extracted from the
+  monthly report rather than copied — two reports drawing one breakdown
+  differently would be two claims about one period, the same reason `KpiCards`
+  and the charts are shared with the dashboard.
+- **The tabs are routes, not local state**, so a particular report is a URL that
+  can be bookmarked or sent to someone.
+- **The period label spells out the year when the window crosses one** — "Aug
+  2025 – Jul 2026", never "Aug – Jul 2026". Once a board pack leaves the app,
+  that label is the reader's only statement of which months are being claimed.
+- **Both periods' figures are `kpi_snapshots` rows**, so "last quarter" is
+  stated the same way as "this quarter" rather than one being a snapshot and the
+  other a hand-rolled total.
+- **Saved scenarios are shown as they were computed when saved**, not re-run
+  against today's numbers — a board paper says what the plan looked like when it
+  was modelled.
 
 ## Company profile (Phase 2.3)
 
