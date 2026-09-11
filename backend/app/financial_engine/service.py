@@ -348,6 +348,24 @@ async def latest_transaction_month(
     return (latest.year, latest.month) if latest is not None else None
 
 
+async def earliest_transaction_month(
+    db: AsyncSession, company_id: uuid.UUID
+) -> tuple[int, int] | None:
+    """The (year, month) of the company's *first* transaction, or None.
+
+    The other end of `latest_transaction_month`. Together they bound how long
+    the company has been measurable at all, which the investor readiness
+    summary (task 8.3) grades as its track record — and which is a different
+    question from how many months a report happens to window over."""
+    result = await db.execute(
+        select(func.min(Transaction.date)).where(
+            Transaction.company_id == company_id
+        )
+    )
+    earliest = result.scalar_one_or_none()
+    return (earliest.year, earliest.month) if earliest is not None else None
+
+
 async def company_history(
     db: AsyncSession,
     company_id: uuid.UUID,

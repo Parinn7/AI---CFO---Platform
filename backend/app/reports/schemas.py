@@ -233,3 +233,87 @@ class BoardReport(BaseModel):
     categories: list[CategoryLine]
     watch_items: list[WatchItem]
     scenarios: list[ScenarioSummary]
+
+
+# --- Investor Readiness Summary (task 8.3, FR-7.3) ---
+
+REPORT_TYPE_INVESTOR = "investor"
+
+#: The window the summary is measured over: a trailing year of available data,
+#: against the year before it. An investor's unit of assessment is the year, and
+#: a shorter window would let one strong quarter stand in for a trajectory.
+INVESTOR_WINDOW_MONTHS = 12
+
+
+class RunRate(BaseModel):
+    """What the business is earning *now*, annualised.
+
+    `monthly` is the latest month with data — not the trailing year averaged —
+    because a run-rate answers "what is this earning today" and averaging in the
+    months before the company started selling understates it. The trailing-year
+    total travels alongside in `window.kpis.total_revenue`, so a reader can see
+    both rather than being handed the flattering one."""
+
+    month: str  # "YYYY-MM" — the month the run-rate is taken from
+    monthly: Decimal
+    annualised: Decimal
+
+
+class ReadinessCheck(BaseModel):
+    """One graded readiness check (FR-7.3).
+
+    `status` is `ready` / `attention` / `gap`, or `not_applicable` when the
+    check couldn't be measured — a missing figure is never silently graded as a
+    pass. `ready_at` and `attention_at` are the fixed thresholds the value was
+    compared against, carried so the screen can state the rule rather than
+    hard-code its own copy of it. Every check is higher-is-better.
+
+    `detail` is template-filled prose built in `financial_engine.readiness` from
+    the same figures as `value`; **no LLM writes it** (architecture §4.1)."""
+
+    key: str
+    label: str
+    status: str
+    value: Decimal | None
+    unit: str  # "months" | "pct"
+    ready_at: Decimal
+    attention_at: Decimal
+    detail: str
+
+
+class InvestorSummary(BaseModel):
+    """The Investor Readiness Summary (FR-7.3) — the metrics investors
+    typically evaluate, and a fixed-rule checklist of how this company reads
+    against them.
+
+    Where the board report narrates a period, this one answers "would this
+    survive a first diligence conversation": run-rate and its annualisation,
+    the trailing year against the year before it, cash and burn efficiency, and
+    six checks graded against stated thresholds.
+
+    `overall_status` is the **weakest link**, not a score — no weighted total
+    exists, because a single grade would imply a precision this data can't
+    support and invite reading it as a valuation. Every figure is Financial
+    Engine output and no LLM writes any part of it (architecture §4.1 / §5.4).
+    """
+
+    report_type: str = REPORT_TYPE_INVESTOR
+    company: ReportCompany
+    num_months: int = INVESTOR_WINDOW_MONTHS
+    generated_at: dt.datetime
+
+    window: PeriodTotals
+    previous: PeriodTotals
+    movement: PeriodMovement
+    cash: CashPosition
+
+    run_rate: RunRate
+    burn_multiple: Decimal | None
+    months_of_history: int
+    months_with_revenue: int
+
+    overall_status: str
+    checks: list[ReadinessCheck]
+
+    monthly: list[MonthlyPerformanceRead]
+    categories: list[CategoryLine]

@@ -25,7 +25,14 @@ import { useCallback, useEffect, useState } from "react";
 import { NetCashFlowChart, RevenueExpenseChart } from "@/components/DashboardCharts";
 import { KpiCards } from "@/components/KpiCards";
 import { ReportHeader } from "@/components/ReportHeader";
-import { CategoryBreakdown, ReportEmptyState } from "@/components/ReportSections";
+import {
+  CategoryBreakdown,
+  MovementRow,
+  ReportEmptyState,
+  runwayLabel as runway,
+  signed,
+  windowLabel,
+} from "@/components/ReportSections";
 import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -39,33 +46,12 @@ import {
   type Company,
   type ScenarioSummary,
 } from "@/lib/api";
-import { formatINR, monthLong, monthShort } from "@/lib/format";
+import { formatINR, monthLong } from "@/lib/format";
 
 const PERIODS: { value: BoardPeriod; label: string }[] = [
   { value: "quarter", label: "Quarter" },
   { value: "year", label: "Year" },
 ];
-
-/** A signed change, e.g. "+₹1,00,000.00" / "-₹20,000.00". */
-function signed(value: string): string {
-  const n = Number(value);
-  return `${n >= 0 ? "+" : "-"}${formatINR(Math.abs(n))}`;
-}
-
-/** "May – Jul 2026", or "Aug 2025 – Jul 2026" when the window crosses a year
- * boundary — a board pack that says "Aug – Jul 2026" is ambiguous about which
- * August it means, and this label is the reader's only statement of the period
- * once the report leaves the app. */
-function windowLabel(startMonth: string, endMonth: string): string {
-  if (startMonth === endMonth) return monthLong(endMonth);
-  const sameYear = startMonth.slice(0, 4) === endMonth.slice(0, 4);
-  const start = sameYear ? monthShort(startMonth) : monthLong(startMonth);
-  return `${start} – ${monthLong(endMonth)}`;
-}
-
-function runway(months: string | null): string {
-  return months === null ? "N/A" : `${Number(months).toFixed(1)} mo`;
-}
 
 export default function BoardReportPage() {
   const { user, token, loading: authLoading } = useAuth();
@@ -536,44 +522,6 @@ export default function BoardReportPage() {
         </>
       ) : null}
     </main>
-  );
-}
-
-function MovementRow({
-  label,
-  before,
-  after,
-  change,
-  goodWhenUp = false,
-}: {
-  label: string;
-  before: string;
-  after: string;
-  change: string;
-  goodWhenUp?: boolean;
-}) {
-  const delta = Number(change);
-  // Expenses (and burn) rising isn't good news, so "up" only reads green where
-  // it is.
-  const accent =
-    delta === 0
-      ? "text-black/50 dark:text-white/50"
-      : (delta > 0) === goodWhenUp
-        ? "text-green-600 dark:text-green-500"
-        : "text-red-600 dark:text-red-500";
-  return (
-    <tr className="border-b border-black/5 dark:border-white/5 last:border-0">
-      <td className="p-3">{label}</td>
-      <td className="p-3 text-right whitespace-nowrap font-mono text-black/60 dark:text-white/60">
-        {formatINR(before)}
-      </td>
-      <td className="p-3 text-right whitespace-nowrap font-mono">
-        {formatINR(after)}
-      </td>
-      <td className={`p-3 text-right whitespace-nowrap font-mono ${accent}`}>
-        {signed(change)}
-      </td>
-    </tr>
   );
 }
 

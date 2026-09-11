@@ -1,5 +1,5 @@
-"""Report generation (Phase 8, FR-7.x) — 8.1's Monthly Financial Report and
-8.2's Board Report.
+"""Report generation (Phase 8, FR-7.x) — 8.1's Monthly Financial Report,
+8.2's Board Report and 8.3's Investor Readiness Summary.
 
 **A report is an assembly, not a calculation.** Every figure in one is pulled
 from the Financial Engine — the `kpi_snapshots` row for the month, the same
@@ -30,7 +30,15 @@ month's net outflow rather than an average over a longer period.
 (or a month named explicitly), because that is what "the last quarter" means
 everywhere else in this codebase — *of available data*. Books kept in arrears
 would otherwise produce a quarter two-thirds empty, which reads as a collapse
-rather than as paperwork.
+rather than as paperwork. The investor summary's trailing year is the same
+window rule at a longer length.
+
+**Judging is not assembling either.** The investor summary grades six checks
+against fixed thresholds, and that grading lives in
+`financial_engine/readiness.py` — a pure, DB-free module beside `anomaly.py`,
+which does the same kind of thing with the same kind of fixed rule. Deciding
+what a four-month runway *means* is a rule over engine output; this module only
+gathers the inputs and carries the verdicts out.
 """
 
 from __future__ import annotations
@@ -48,25 +56,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.companies.models import Company
 from app.financial_engine.calculations import month_range
 from app.financial_engine.schemas import KpiSnapshotRead, MonthlyPerformanceRead
+from app.financial_engine.readiness import (
+    ReadinessInputs,
+    annualised_run_rate,
+    burn_multiple,
+    evaluate_readiness,
+    months_of_history,
+    overall_status,
+)
 from app.financial_engine.service import (
     cash_on_hand,
     company_category_breakdown,
+    company_cash_flow,
     company_history,
     company_totals,
+    earliest_transaction_month,
     latest_transaction_month,
     snapshot_for_period,
 )
 from app.reports.schemas import (
     BOARD_PERIODS,
+    INVESTOR_WINDOW_MONTHS,
     BoardReport,
     CashPosition,
     CategoryLine,
+    InvestorSummary,
     MonthComparison,
     MonthlyReport,
     PeriodMovement,
     PeriodTotals,
+    ReadinessCheck,
     ReportAnomaly,
     ReportCompany,
+    RunRate,
     ScenarioSummary,
     WatchItem,
 )
@@ -116,6 +138,54 @@ def previous_month(year: int, month: int) -> tuple[int, int]:
 
 def _month_key(year: int, month: int) -> str:
     return f"{year:04d}-{month:02d}"
+
+
+def _report_company(company: Company) -> ReportCompany:
+    """Who the report is about, carried on the report itself so an exported
+    copy still names its subject once it's away from the app."""
+    return ReportCompany(
+        id=company.id,
+        name=company.name,
+        industry=company.industry,
+        currency=company.currency,
+    )
+
+
+def _category_lines(breakdown, category_names: dict[uuid.UUID, str]):
+    """The engine's category totals as report lines, with ids resolved to names.
+
+    Shared by all three reports (8.3 was the third caller): three reports
+    resolving "Uncategorized" separately is three chances for one of them to
+    quietly drop the bucket and stop adding up to its own totals."""
+    return [
+        CategoryLine(
+            category_id=line.group,
+            name=(
+                category_names.get(line.group, UNCATEGORIZED)
+                if line.group is not None
+                else UNCATEGORIZED
+            ),
+            type=line.type,
+            total=line.total,
+            share_pct=line.share_pct,
+            transaction_count=line.count,
+        )
+        for line in breakdown
+    ]
+
+
+def _performance_series(series) -> list[MonthlyPerformanceRead]:
+    """The engine's gap-filled monthly series as report rows."""
+    return [
+        MonthlyPerformanceRead(
+            month=m.month,
+            revenue=m.revenue,
+            expenses=m.expenses,
+            net_cash_flow=m.net_cash_flow,
+            margin_pct=m.margin_pct,
+        )
+        for m in series
+    ]
 
 
 async def _anomalies(
@@ -196,12 +266,7 @@ async def generate_monthly_report(
     trend, _ = await company_history(db, company.id, TREND_MONTHS, (year, mo))
 
     return MonthlyReport(
-        company=ReportCompany(
-            id=company.id,
-            name=company.name,
-            industry=company.industry,
-            currency=company.currency,
-        ),
+        company=_report_company(company),
         month=_month_key(year, mo),
         period_start=period_start,
         period_end=period_end,
@@ -211,21 +276,7 @@ async def generate_monthly_report(
         income_count=totals.income_count,
         expense_count=totals.expense_count,
         closing_cash=closing_cash,
-        categories=[
-            CategoryLine(
-                category_id=line.group,
-                name=(
-                    category_names.get(line.group, UNCATEGORIZED)
-                    if line.group is not None
-                    else UNCATEGORIZED
-                ),
-                type=line.type,
-                total=line.total,
-                share_pct=line.share_pct,
-                transaction_count=line.count,
-            )
-            for line in breakdown
-        ],
+        categories=_category_lines(breakdown, category_names),
         comparison=MonthComparison(
             month=_month_key(prev_year, prev_mo),
             has_data=(prev_totals.income_count + prev_totals.expense_count) > 0,
@@ -236,16 +287,7 @@ async def generate_monthly_report(
             expenses_change=totals.total_expenses - prev_totals.total_expenses,
             net_change=totals.net - prev_totals.net,
         ),
-        trend=[
-            MonthlyPerformanceRead(
-                month=m.month,
-                revenue=m.revenue,
-                expenses=m.expenses,
-                net_cash_flow=m.net_cash_flow,
-                margin_pct=m.margin_pct,
-            )
-            for m in trend
-        ],
+        trend=_performance_series(trend),
         anomalies=await _anomalies(
             db, company.id, period_start, period_end, category_names
         ),
@@ -451,12 +493,7 @@ async def generate_board_report(
     monthly, _ = await company_history(db, company.id, num_months, (end_year, end_mo))
 
     return BoardReport(
-        company=ReportCompany(
-            id=company.id,
-            name=company.name,
-            industry=company.industry,
-            currency=company.currency,
-        ),
+        company=_report_company(company),
         period=period,
         num_months=num_months,
         generated_at=dt.datetime.now(dt.timezone.utc),
@@ -475,31 +512,8 @@ async def generate_board_report(
             closing_cash=closing_cash,
             net_change=closing_cash - opening_cash,
         ),
-        monthly=[
-            MonthlyPerformanceRead(
-                month=m.month,
-                revenue=m.revenue,
-                expenses=m.expenses,
-                net_cash_flow=m.net_cash_flow,
-                margin_pct=m.margin_pct,
-            )
-            for m in monthly
-        ],
-        categories=[
-            CategoryLine(
-                category_id=line.group,
-                name=(
-                    category_names.get(line.group, UNCATEGORIZED)
-                    if line.group is not None
-                    else UNCATEGORIZED
-                ),
-                type=line.type,
-                total=line.total,
-                share_pct=line.share_pct,
-                transaction_count=line.count,
-            )
-            for line in breakdown
-        ],
+        monthly=_performance_series(monthly),
+        categories=_category_lines(breakdown, category_names),
         watch_items=await _watch_items(
             db, company.id, period_start, period_end, category_names
         ),
@@ -507,14 +521,171 @@ async def generate_board_report(
     )
 
 
+# --- Investor Readiness Summary (task 8.3, FR-7.3) ---
+
+
+async def _months_with_revenue(db: AsyncSession, company_id: uuid.UUID) -> int:
+    """How many calendar months on record have any revenue in them.
+
+    Counted over the company's whole history rather than the reported window,
+    so that a nine-month-old company isn't marked inconsistent for the three
+    months before it existed. Months are the engine's own cash-flow buckets —
+    only months with transactions appear, which is exactly what's being counted.
+    """
+    months = await company_cash_flow(db, company_id)
+    return sum(1 for m in months if m.inflow > Decimal("0"))
+
+
+def _categorized_expense_pct(lines: list[CategoryLine]) -> Decimal | None:
+    """Share of expense **value** carrying a category, as a percentage.
+
+    By value rather than by count, because one uncategorized payroll run matters
+    more to a reader than forty uncategorized coffees. None when there are no
+    expenses to take a share of."""
+    total = sum((line.total for line in lines if line.type == "expense"), Decimal("0"))
+    if total <= Decimal("0"):
+        return None
+    placed = sum(
+        (
+            line.total
+            for line in lines
+            if line.type == "expense" and line.category_id is not None
+        ),
+        Decimal("0"),
+    )
+    return (placed * 100 / total).quantize(Decimal("0.01"))
+
+
+async def generate_investor_summary(
+    db: AsyncSession,
+    company: Company,
+    end_month: tuple[int, int] | None = None,
+) -> InvestorSummary:
+    """Build the Investor Readiness Summary (FR-7.3).
+
+    The metrics investors typically evaluate, plus a fixed-threshold checklist
+    of how the company reads against them: run-rate and its annualisation, the
+    trailing year against the year before it, cash at both ends, burn
+    efficiency, and six graded checks.
+
+    **The window is a trailing year of available data**, anchored like every
+    other window in this codebase (see `generate_board_report`). A year is the
+    investor's unit of assessment; a shorter window would let one strong quarter
+    stand in for a trajectory. `end_month` names a different anchor for the same
+    reason it does on the board report.
+
+    The grading lives in `financial_engine.readiness`, not here — a report
+    assembles, and deciding what a runway of four months *means* is a rule over
+    engine output, testable without a database and without this module. Raises
+    `NoFinancialData` when the company has no transactions at all.
+    """
+    if end_month is None:
+        end_month = await latest_transaction_month(db, company.id)
+        if end_month is None:
+            raise NoFinancialData
+    end_year, end_mo = end_month
+
+    period_start, period_end = board_period_bounds(
+        end_year, end_mo, INVESTOR_WINDOW_MONTHS
+    )
+    prev_start, prev_end = previous_period_bounds(period_start, INVESTOR_WINDOW_MONTHS)
+
+    window = await _period_totals(db, company.id, period_start, period_end)
+    previous = await _period_totals(db, company.id, prev_start, prev_end)
+
+    opening_cash = await cash_on_hand(
+        db, company.id, period_start - dt.timedelta(days=1)
+    )
+    closing_cash = await cash_on_hand(db, company.id, period_end)
+
+    categories = await list_categories(db, company.id)
+    category_names = {c.id: c.name for c in categories}
+    breakdown = await company_category_breakdown(
+        db, company.id, period_start, period_end
+    )
+    category_lines = _category_lines(breakdown, category_names)
+
+    monthly, _ = await company_history(
+        db, company.id, INVESTOR_WINDOW_MONTHS, (end_year, end_mo)
+    )
+    series = _performance_series(monthly)
+    # The anchor month is the latest month *with data* by construction, so the
+    # last row of the gap-filled series is the run-rate month — never a zero
+    # month padded onto the end.
+    latest = series[-1]
+
+    # `burn_rate` is a per-month figure; the window's total burn is it across
+    # the window, which is `expenses − revenue` — restated from the engine's own
+    # net rather than recomputed from transactions.
+    net_burn = -window.kpis.net_cash_flow
+
+    first_month = await earliest_transaction_month(db, company.id)
+    # `first_month` is not None here: the anchor came from a real transaction.
+    history_months = months_of_history(
+        dt.date(first_month[0], first_month[1], 1), period_end
+    )
+    revenue_months = await _months_with_revenue(db, company.id)
+
+    checks = evaluate_readiness(
+        ReadinessInputs(
+            months_of_history=history_months,
+            months_with_revenue=revenue_months,
+            runway_months=window.kpis.runway_months,
+            is_burning=net_burn > Decimal("0"),
+            revenue_growth_pct=window.kpis.revenue_growth_pct,
+            operating_margin_pct=window.kpis.operating_margin_pct,
+            categorized_expense_pct=_categorized_expense_pct(category_lines),
+        )
+    )
+
+    return InvestorSummary(
+        company=_report_company(company),
+        generated_at=dt.datetime.now(dt.timezone.utc),
+        window=window,
+        previous=previous,
+        movement=PeriodMovement(
+            revenue_change=window.kpis.total_revenue - previous.kpis.total_revenue,
+            expenses_change=(
+                window.kpis.total_expenses - previous.kpis.total_expenses
+            ),
+            net_change=window.kpis.net_cash_flow - previous.kpis.net_cash_flow,
+            burn_rate_change=window.kpis.burn_rate - previous.kpis.burn_rate,
+        ),
+        cash=CashPosition(
+            opening_cash=opening_cash,
+            closing_cash=closing_cash,
+            net_change=closing_cash - opening_cash,
+        ),
+        run_rate=RunRate(
+            month=latest.month,
+            monthly=latest.revenue,
+            annualised=annualised_run_rate(latest.revenue),
+        ),
+        burn_multiple=burn_multiple(
+            net_burn, window.kpis.total_revenue, previous.kpis.total_revenue
+        ),
+        months_of_history=history_months,
+        months_with_revenue=revenue_months,
+        overall_status=overall_status(checks),
+        checks=[
+            ReadinessCheck.model_validate(check, from_attributes=True)
+            for check in checks
+        ],
+        monthly=series,
+        categories=category_lines,
+    )
+
+
 __all__ = [
     "BOARD_PERIODS",
     "BOARD_SCENARIO_LIMIT",
+    "INVESTOR_WINDOW_MONTHS",
     "TREND_MONTHS",
     "UNCATEGORIZED",
     "NoFinancialData",
     "board_period_bounds",
     "generate_board_report",
+    "generate_investor_summary",
     "generate_monthly_report",
     "month_bounds",
     "parse_month",

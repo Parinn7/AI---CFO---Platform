@@ -1,10 +1,13 @@
 /**
- * Pieces every report screen shares (Phase 8) — the category breakdown table
- * and the empty states.
+ * Pieces every report screen shares (Phase 8) — the category breakdown table,
+ * the period-comparison row, the empty states, and the small formatters a
+ * report's prose depends on.
  *
- * Extracted from the monthly report in 8.2 rather than copied: two reports
- * drawing the same breakdown differently would be two claims about one period,
- * which is the whole reason the KPI tiles are shared with the dashboard too.
+ * Extracted from the monthly report in 8.2 rather than copied, and widened in
+ * 8.3 when the investor summary became the second screen to state a period
+ * against the one before it: two reports drawing the same comparison
+ * differently would be two claims about one period, which is the whole reason
+ * the KPI tiles are shared with the dashboard too.
  *
  * Display only. Every figure arrives already computed by the Financial Engine
  * (architecture §4.1) and is rendered through `lib/format.ts`, so a rupee reads
@@ -14,7 +17,69 @@
 import Link from "next/link";
 
 import { type CategoryLine } from "@/lib/api";
-import { formatINR } from "@/lib/format";
+import { formatINR, monthLong, monthShort } from "@/lib/format";
+
+/** A signed change, e.g. "+₹1,00,000.00" / "-₹20,000.00". */
+export function signed(value: string): string {
+  const n = Number(value);
+  return `${n >= 0 ? "+" : "-"}${formatINR(Math.abs(n))}`;
+}
+
+/** "May – Jul 2026", or "Aug 2025 – Jul 2026" when the window crosses a year
+ * boundary — a report that says "Aug – Jul 2026" is ambiguous about which
+ * August it means, and this label is the reader's only statement of the period
+ * once the report leaves the app. */
+export function windowLabel(startMonth: string, endMonth: string): string {
+  if (startMonth === endMonth) return monthLong(endMonth);
+  const sameYear = startMonth.slice(0, 4) === endMonth.slice(0, 4);
+  const start = sameYear ? monthShort(startMonth) : monthLong(startMonth);
+  return `${start} – ${monthLong(endMonth)}`;
+}
+
+/** Runway in months, or "N/A" — which the engine returns whenever the division
+ * has no meaning (not burning, or no cash left). Never rendered as 0. */
+export function runwayLabel(months: string | null): string {
+  return months === null ? "N/A" : `${Number(months).toFixed(1)} mo`;
+}
+
+/** One line of a "period before → period now → change" table. Expenses and
+ * burn rising isn't good news, so `goodWhenUp` decides which direction reads
+ * green rather than assuming up is always better. */
+export function MovementRow({
+  label,
+  before,
+  after,
+  change,
+  goodWhenUp = false,
+}: {
+  label: string;
+  before: string;
+  after: string;
+  change: string;
+  goodWhenUp?: boolean;
+}) {
+  const delta = Number(change);
+  const accent =
+    delta === 0
+      ? "text-black/50 dark:text-white/50"
+      : (delta > 0) === goodWhenUp
+        ? "text-green-600 dark:text-green-500"
+        : "text-red-600 dark:text-red-500";
+  return (
+    <tr className="border-b border-black/5 dark:border-white/5 last:border-0">
+      <td className="p-3">{label}</td>
+      <td className="p-3 text-right whitespace-nowrap font-mono text-black/60 dark:text-white/60">
+        {formatINR(before)}
+      </td>
+      <td className="p-3 text-right whitespace-nowrap font-mono">
+        {formatINR(after)}
+      </td>
+      <td className={`p-3 text-right whitespace-nowrap font-mono ${accent}`}>
+        {signed(change)}
+      </td>
+    </tr>
+  );
+}
 
 /** Where the money went, by category. Shares are of the line's own side of the
  * ledger (an expense as a % of all expenses); "Uncategorized" is a real line,

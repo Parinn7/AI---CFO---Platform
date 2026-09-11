@@ -1,5 +1,5 @@
-"""Report endpoints (Phase 8, FR-7.x) — the monthly report (8.1) and the
-board report (8.2).
+"""Report endpoints (Phase 8, FR-7.x) — the monthly report (8.1), the board
+report (8.2) and the investor readiness summary (8.3).
 
 Read-only: generating a report never writes one (see `reports.service` for why
 there is no `reports` row until PDF export in 8.4), so this is a `GET` and
@@ -26,7 +26,7 @@ from app.companies.models import Company
 from app.companies.service import get_company_for_user
 from app.core.database import get_db
 from app.reports import service
-from app.reports.schemas import BoardReport, MonthlyReport
+from app.reports.schemas import BoardReport, InvestorSummary, MonthlyReport
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -114,6 +114,50 @@ async def board_report(
 
     try:
         return await service.generate_board_report(db, company, period, parsed)
+    except service.NoFinancialData:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "No financial data yet — import a file or add entries before "
+                "generating a report."
+            ),
+        )
+
+
+@router.get("/investor", response_model=InvestorSummary)
+async def investor_summary(
+    company_id: uuid.UUID,
+    end_month: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> InvestorSummary:
+    """The Investor Readiness Summary (FR-7.3) — the metrics investors typically
+    evaluate over a trailing year, and a fixed-threshold checklist of how the
+    company reads against them: run-rate and its annualisation, the year against
+    the year before it, cash at both ends, burn efficiency, and six graded
+    checks.
+
+    The grading is a fixed rule over Financial Engine output, not a judgement
+    and not a model's opinion — `financial_engine/readiness.py` holds the
+    thresholds, and the summary carries them alongside each verdict so the
+    screen states the rule rather than keeping its own copy.
+
+    `end_month` is `YYYY-MM`; omit it for the latest month with data. A
+    malformed one is a `400`; a company with no transactions at all a `404`.
+    """
+    company = await _require_company(company_id, current_user, db)
+
+    parsed = None
+    if end_month is not None:
+        try:
+            parsed = service.parse_month(end_month)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+
+    try:
+        return await service.generate_investor_summary(db, company, parsed)
     except service.NoFinancialData:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

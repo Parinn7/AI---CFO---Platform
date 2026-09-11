@@ -302,9 +302,56 @@ What the board report decides differently from the monthly one, and why:
 The screen is `/reports/board`, and 8.2 pulled the report screens' shared parts
 into `components/ReportHeader.tsx` (title, app nav, tabs between report types)
 and `components/ReportSections.tsx` (category breakdown, empty states). The tabs
-are routes rather than local state, so a particular report is a URL. **8.3's
-investor summary adds one line to `REPORT_TABS` and a page**; the assembly rules
-above already cover what it will need.
+are routes rather than local state, so a particular report is a URL.
+
+**As implemented (task 8.3, FR-7.3) — the Investor Readiness Summary.**
+`GET /api/v1/reports/investor?company_id=[&end_month=YYYY-MM]` returns a
+**trailing year** against the year before it — an investor's unit of assessment
+is the year, and a shorter window would let one strong quarter stand in for a
+trajectory — plus the derived figures a first call asks for and a graded
+readiness checklist. Same assembly rules as 8.1/8.2: engine figures only, no
+LLM, nothing stored.
+
+What this report adds, and where each part lives:
+
+- **Judging is not assembling.** The grading is a new pure, DB-free module,
+  `financial_engine/readiness.py`, sitting beside `anomaly.py` because it is the
+  same kind of thing: a **fixed threshold applied to engine output**, not a
+  judgement and not a model's opinion. Six checks — track record, runway,
+  revenue growth, operating margin, revenue consistency, categorized spend —
+  each graded `ready` / `attention` / `gap`, or `not_applicable` when the figure
+  it grades is undefined. A figure the engine leaves null (runway while
+  profitable, growth with no prior year) **never grades as a quiet pass**.
+  Thresholds are constants there, not per-company config, and travel in the
+  response so the screen states the rule instead of keeping its own copy of it.
+- **No score, only a weakest link.** `overall_status` is the worst status
+  present. There is deliberately no weighted total: a single grade would imply a
+  precision this data can't support and invite reading the summary as a
+  valuation, and a strong margin genuinely does not offset a four-month runway.
+- **Two derived figures the KPI set doesn't already hold**, both in
+  `readiness.py`: the **annualised run-rate** (the *latest month* × 12, not the
+  year averaged — a run-rate answers "what is this earning now", and averaging in
+  the months before the company started selling understates it; the year's total
+  is stated alongside so a reader sees both), and the **burn multiple** (cash
+  burned per rupee of new revenue), returned as null rather than a misleading
+  number whenever it has no meaning — not burning, or revenue flat/down.
+- **Track record is measured over the company, not the window.** How long the
+  business has been measurable is a fact about the business; the twelve-month
+  window is a reporting choice. `service.earliest_transaction_month` (new,
+  symmetric with `latest_transaction_month`) bounds it, and revenue consistency
+  is a share of *those* months — so a nine-month-old company isn't marked
+  inconsistent for the three months before it existed.
+- **Uncategorized spend is a diligence finding, by value.** The `categorized_spend`
+  check is the share of expense *value* carrying a category, because one
+  unexplained payroll run matters more than forty unexplained coffees.
+
+The screen is `/reports/investor`. 8.3 widened `ReportSections.tsx` with the
+period-comparison row and the small report formatters (`signed`, `windowLabel`,
+`runwayLabel`, `MovementRow`) that the board report had been keeping privately —
+two screens stating a period against the one before it must state it the same
+way. Charts and tiles are the dashboard's, as everywhere else in Phase 8. **PDF
+export for all three reports is task 8.4**, so this screen carries no export
+button either.
 
 ## 6. Database
 

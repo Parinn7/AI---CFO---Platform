@@ -7,8 +7,8 @@
  * bookmark or send to someone, and so each report page stays a page rather than
  * a branch inside one.
  *
- * `REPORT_TABS` is the single list of report types; 8.3's investor summary adds
- * one line here and nothing else.
+ * `REPORT_TABS` is the single list of report types — 8.3's investor summary did
+ * add exactly one line here and nothing else.
  */
 
 "use client";
@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 const REPORT_TABS = [
   { href: "/reports", label: "Monthly" },
   { href: "/reports/board", label: "Board" },
+  { href: "/reports/investor", label: "Investor readiness" },
 ];
 
 export function ReportHeader({

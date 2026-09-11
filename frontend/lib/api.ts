@@ -1021,3 +1021,75 @@ export function getBoardReport(
   if (endMonth) params.set("end_month", endMonth);
   return apiGet<BoardReport>(`/api/v1/reports/board?${params.toString()}`, token);
 }
+
+/* --- Investor Readiness Summary (8.3, FR-7.3) --- */
+
+/** What the business is earning *now*, annualised. `monthly` is the latest
+ * month with data — not the trailing year averaged — because a run-rate answers
+ * "what is this earning today"; the year's total travels alongside in
+ * `window.kpis.total_revenue` so a reader sees both. */
+export type RunRate = {
+  month: string; // "YYYY-MM"
+  monthly: string;
+  annualised: string;
+};
+
+/** How one readiness check came out. `not_applicable` means the figure it
+ * grades is undefined — never a quiet pass. `ready_at`/`attention_at` are the
+ * fixed thresholds the value was measured against, carried so the screen states
+ * the rule instead of keeping its own copy of it. Every check is
+ * higher-is-better. `detail` is template-filled prose from the engine; no LLM
+ * writes it. */
+export type ReadinessStatus = "ready" | "attention" | "gap" | "not_applicable";
+
+export type ReadinessCheck = {
+  key: string;
+  label: string;
+  status: ReadinessStatus;
+  value: string | null;
+  unit: "months" | "pct";
+  ready_at: string;
+  attention_at: string;
+  detail: string;
+};
+
+/** The Investor Readiness Summary (8.3, FR-7.3) — the metrics investors
+ * typically evaluate over a trailing year, and a fixed-rule checklist of how the
+ * company reads against them. `overall_status` is the **weakest link**, not a
+ * score: no weighted total exists, because a single grade would imply a
+ * precision this data can't support. Every figure is Financial Engine output and
+ * no LLM writes any part of it (architecture §4.1). */
+export type InvestorSummary = {
+  report_type: "investor";
+  company: ReportCompany;
+  num_months: number;
+  generated_at: string;
+  window: PeriodTotals;
+  previous: PeriodTotals;
+  movement: PeriodMovement;
+  cash: CashPosition;
+  run_rate: RunRate;
+  burn_multiple: string | null;
+  months_of_history: number;
+  months_with_revenue: number;
+  overall_status: ReadinessStatus;
+  checks: ReadinessCheck[];
+  monthly: MonthlyPerformance[];
+  categories: CategoryLine[];
+};
+
+/** Generate the investor readiness summary. `endMonth` ("YYYY-MM") anchors the
+ * trailing year — omit it for the latest month with data. `404` when the company
+ * has no transactions at all. */
+export function getInvestorSummary(
+  companyId: string,
+  token: string,
+  endMonth?: string,
+): Promise<InvestorSummary> {
+  const params = new URLSearchParams({ company_id: companyId });
+  if (endMonth) params.set("end_month", endMonth);
+  return apiGet<InvestorSummary>(
+    `/api/v1/reports/investor?${params.toString()}`,
+    token,
+  );
+}
