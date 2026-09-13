@@ -67,7 +67,7 @@ Master task list. Each subtask is one Claude Code session. Reference by ID ("do 
 - [x] **8.1** Monthly Financial Report (FR-7.1).
 - [x] **8.2** Board Report (FR-7.2).
 - [x] **8.3** Investor Readiness Summary (FR-7.3).
-- [ ] **8.4** PDF export for all report types (FR-7.4).
+- [x] **8.4** PDF export for all report types (FR-7.4).
 - [ ] **8.5** Confirm reports generate correctly for companies whose data came entirely from manual entry, not just uploads.
 
 ## Phase 9 — Frontend Polish & Presentation Prep

@@ -244,8 +244,9 @@ Three decisions worth recording:
   July to everyone who reads it. Because the KPI snapshot is generated for
   exactly that window, the month's `revenue_growth_pct` is growth against the
   preceding month and its `burn_rate` is that single month's net outflow.
-- **Generation is a read.** No `reports` row is written (see `schema.md` §10 for
-  why the table waits for 8.4), and anomaly flags are *read* rather than
+- **Generation is a read.** No `reports` row is written — and as of 8.4 none ever
+  is, exporting included (see `schema.md` §10 for why the table was retired
+  rather than built), and anomaly flags are *read* rather than
   re-detected — a `GET` that rewrote `is_flagged_anomaly` would let two people
   opening the same report see different flags. Detection is re-run by the
   screens that own it.
@@ -262,8 +263,8 @@ lines have to add up to the totals printed above them.
 The screen is `/reports` (frontend), which reuses `KpiCards` and
 `RevenueExpenseChart` from the dashboard rather than reimplementing them — a
 report and a dashboard drawing the same month differently would be two claims
-about one period. **PDF export is task 8.4**, so the screen deliberately carries
-no export button yet.
+about one period. Its **Download PDF** button arrived in 8.4 and exports the
+month currently selected, not the default one.
 
 **As implemented (task 8.2, FR-7.2) — the Board Report.**
 `GET /api/v1/reports/board?company_id=[&period=quarter|year][&end_month=YYYY-MM]`
@@ -349,9 +350,62 @@ The screen is `/reports/investor`. 8.3 widened `ReportSections.tsx` with the
 period-comparison row and the small report formatters (`signed`, `windowLabel`,
 `runwayLabel`, `MovementRow`) that the board report had been keeping privately —
 two screens stating a period against the one before it must state it the same
-way. Charts and tiles are the dashboard's, as everywhere else in Phase 8. **PDF
-export for all three reports is task 8.4**, so this screen carries no export
-button either.
+way. Charts and tiles are the dashboard's, as everywhere else in Phase 8. All
+three screens gained **Download PDF** in 8.4, below.
+
+**As implemented (task 8.4, FR-7.4) — PDF export.**
+`GET /api/v1/reports/{monthly,board,investor}/pdf` returns the corresponding
+report as `application/pdf` with a `Content-Disposition` filename naming the
+company and the period (`Northwind-Analytics-Board-Report-Quarter-2026-07.pdf`).
+
+- **An export is its JSON sibling plus a renderer.** Each `/pdf` route runs the
+  *same* `reports.service` generator as the screen route — same owner check,
+  same window rules, same `NoFinancialData` 404 — and hands the result to
+  `app/reports/pdf.py`. The exported copy and the screen it came from are
+  therefore the same report by construction, not by two implementations
+  happening to agree. This is the property `tests/test_report_pdf.py` pins
+  hardest: it reads the generated PDF's text back with `pypdf` and asserts the
+  figures in it are *literally the strings the JSON endpoint returned*.
+- **`app/reports/pdf.py` renders and nothing else.** No DB session, no engine
+  imports, no arithmetic on money beyond picking a colour by sign. A figure
+  that is wrong in a PDF is wrong upstream, which keeps §4.1's "reports
+  assemble, they never calculate" true of the artefact that actually leaves the
+  building. Every amount is drawn through `core/formatting.py`, the mirror of
+  the frontend's `lib/format.ts`, so a rupee reads identically on screen and on
+  paper.
+- **Nothing is stored.** The PDF is rendered into a buffer and returned; no file
+  is written and no `reports` row is created. A report is a pure function of the
+  company's transactions, so a regenerated one can never disagree with the data
+  while a stored one can — and a `file_path` would not survive Phase 10's
+  ephemeral filesystem anyway. `schema.md` §10 records the table's retirement.
+- **The ₹ glyph forced a bundled font.** ReportLab's built-in Type 1 faces are
+  WinAnsi-encoded and have no U+20B9, so an INR report in Helvetica draws every
+  rupee sign as a black box. `app/reports/fonts/` ships DejaVu Sans (upstream
+  2.37, Bitstream Vera licence included), which also means the deployed backend
+  renders identically to a laptop rather than depending on the host image's
+  fonts. A test asserts the rupee survives a render-and-read round trip, because
+  that regression would still produce a *valid* PDF.
+- **Tiles state a magnitude with the exact figure beneath it** — `₹4.2L/mo` over
+  `₹4,21,573.50/mo`. An A4 page divided five ways leaves ~83pt per tile, and a
+  rupee-exact lakh-scale figure set at tile size wraps mid-number; shrinking the
+  type only moves the threshold. Both renderings are the same stored number, the
+  pattern `core.formatting.format_money` already uses. A **negative burn rate is
+  stated as a surplus**, sign and label flipped exactly as the dashboard's
+  `KpiCards` does it.
+- **The download is driven by `fetch`, not a link.** The endpoints need an
+  `Authorization` header, which a plain `<a href>` navigation cannot send, so
+  `lib/api.ts::apiDownload` fetches the bytes and `saveFile` hands them to the
+  browser through a temporary object URL. The filename comes off
+  `Content-Disposition`, readable cross-origin only because `main.py` lists that
+  header in the CORS policy's `expose_headers` — it is set there rather than
+  per-response because a response header is silently overwritten if the CORS
+  middleware ever starts sending its own.
+- **One button, three pages.** `components/DownloadReportButton.tsx` takes a
+  thunk rather than a URL, and each page closes over exactly the arguments it is
+  currently displaying — so the file is always the report on screen, never the
+  default one. Verified in a real browser (Playwright/Chromium) in both themes:
+  24 checks, zero console errors, plus a second pass confirming the export
+  follows the month picker, the quarter/year toggle and the year anchor.
 
 ## 6. Database
 
@@ -368,7 +422,7 @@ PostgreSQL as the single primary data store for MVP (schema detailed separately 
 | Integration | Purpose | Notes |
 |---|---|---|
 | Google Gemini API (`generateContent`) | AI CFO Assistant | Behind the provider interface in `app/ai_cfo/providers` (7.4, FR-6.4). Plain REST via `httpx`, no vendor SDK. Another vendor is a new module plus a registry line; `LLM_PROVIDER=none` runs the app with no model at all. |
-| PDF generation library (e.g., WeasyPrint or a JS equivalent) | Report export | Runs server-side in the `/reports` module |
+| ReportLab | Report export (8.4, FR-7.4) | Renders the three report types to PDF server-side in `app/reports/pdf.py`. Chosen over WeasyPrint because it is pure Python with no cairo/pango system libraries behind it — deployable in Phase 10 without a custom build image. Ships a bundled font; see §5.4. |
 
 ## 8. Deployment Topology (High-Level)
 

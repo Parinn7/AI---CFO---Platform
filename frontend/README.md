@@ -264,8 +264,8 @@ from making two different claims about one month.
   opened directly doesn't quote stale flags. Idempotent and non-fatal.
 - **"Change" is coloured by whether it's good news**, not by its sign — rising
   expenses are red, rising revenue is green.
-- **No PDF button yet.** Export is task 8.4; a dead button would be worse than
-  none.
+- **Download PDF** (8.4) exports the month currently selected, not the default
+  one — see below.
 
 ## Board report (Phase 8.2)
 
@@ -297,6 +297,29 @@ last month. Switching either re-scopes the whole page from one request.
 - **Saved scenarios are shown as they were computed when saved**, not re-run
   against today's numbers — a board paper says what the plan looked like when it
   was modelled.
+
+## PDF export (Phase 8.4)
+
+Every report screen carries a **Download PDF** button (FR-7.4), backed by
+`components/DownloadReportButton.tsx` — one component for all three, because the
+only thing that differs is which endpoint to call.
+
+- **The button takes a thunk, not a URL.** Each page closes over exactly the
+  arguments it is currently displaying — the selected month, the quarter/year
+  toggle, the year anchor — so the file is always the report on screen and never
+  the default one.
+- **The download is driven by `fetch`, not a link.** The export endpoints need an
+  `Authorization` header, which a plain `<a href>` navigation cannot send, so
+  `lib/api.ts::apiDownload` fetches the bytes and `saveFile` hands them to the
+  browser through a temporary object URL (revoked immediately — holding it keeps
+  the whole blob in memory).
+- **The filename comes from the server**, off `Content-Disposition`
+  (`Northwind-Analytics-Monthly-Report-2026-07.pdf`). That header is readable
+  only because the backend's CORS policy exposes it; `filenameFrom()` falls back
+  to a generic name if a proxy strips it, since a download with no name is worse
+  than a download with a dull one.
+- **A failed export is reported beside the button**, not by replacing the page —
+  the report itself is still on screen and still correct.
 
 ## Company profile (Phase 2.3)
 

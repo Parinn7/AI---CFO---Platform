@@ -24,9 +24,10 @@ backend/
   .env.example
 ```
 
-`ai_cfo` is complete: Phase 7 ends with 7.4. `reports` holds 8.1 (the monthly
-report) and 8.2 (the board report); the investor readiness summary and PDF
-export follow in 8.3–8.4.
+`ai_cfo` is complete: Phase 7 ends with 7.4. `reports` holds all of 8.1–8.4 —
+the monthly report, the board report, the investor readiness summary, and PDF
+export of all three (`reports/pdf.py`, with its bundled font in
+`reports/fonts/`).
 
 ## Setup
 
@@ -532,14 +533,17 @@ LLM_MODEL=gemini-3.8-flash     # `gemini-flash-latest` tracks the newest flash
 
 ## Reports (Phase 8)
 
-Structured reports assembled from Financial Engine output (FR-7.x). **8.1 —
-the Monthly Financial Report (FR-7.1)** and **8.2 — the Board Report (FR-7.2)**
-are in; the investor readiness summary (8.3) and PDF export (8.4) follow.
+Structured reports assembled from Financial Engine output (FR-7.x). All four
+subtasks are in: **8.1 — the Monthly Financial Report (FR-7.1)**, **8.2 — the
+Board Report (FR-7.2)**, **8.3 — the Investor Readiness Summary (FR-7.3)** and
+**8.4 — PDF export of all three (FR-7.4)**.
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/v1/reports/monthly?company_id=[&month=YYYY-MM]` | One calendar month: KPIs, totals, closing cash, category breakdown, previous-month comparison, six-month trend, flagged expenses. `month` defaults to the latest month with data. `400` on a malformed month, `404` if the company has no transactions at all or isn't yours. |
 | `GET /api/v1/reports/board?company_id=[&period=quarter\|year][&end_month=YYYY-MM]` | A trailing quarter (default) or year: the period's KPI snapshot beside the equal-length period before it, the movement between them, cash at both ends, the month-by-month series, the cost structure, flagged spend grouped by category-month, and the newest saved scenarios. `end_month` defaults to the latest month with data. `422` on an unknown period, `400` on a malformed month, `404` as above. |
+| `GET /api/v1/reports/investor?company_id=[&end_month=YYYY-MM]` | A trailing year against the year before it: run-rate and its annualisation, cash at both ends, burn multiple, months of history and months with revenue, and **six readiness checks** graded `ready`/`attention`/`gap`/`not_applicable` against fixed thresholds carried alongside each verdict. `overall_status` is the weakest link, deliberately not a score. `end_month` defaults to the latest month with data. `400` / `404` as above. |
+| `GET /api/v1/reports/{monthly\|board\|investor}/pdf?…` | The same report, rendered (FR-7.4). Identical arguments and identical error behaviour to the route above it — `application/pdf` with a `Content-Disposition` filename naming the company and the period. |
 
 **A report assembles, it never calculates.** Every figure is engine output, and
 `kpis` is the literal `kpi_snapshots` row the dashboard's tiles and the AI CFO's
@@ -558,8 +562,9 @@ report** (architecture §4.1 / §5.4).
   is a real finding — honest zeros, with undefined ratios left null rather than
   rendered as a 0% that reads like a measurement. A company with *no*
   transactions has no month to choose, so it's a `404` with a readable reason.
-- **Generation is a read.** No `reports` row is written (see `database/schema.md`
-  §10 for why that table waits for 8.4), and anomaly flags are read as stored
+- **Generation is a read.** No `reports` row is written — and as of 8.4 none ever
+  is, exporting included (see `database/schema.md` §10 for why that table was
+  retired rather than built), and anomaly flags are read as stored
   rather than re-detected — a `GET` that rewrote `is_flagged_anomaly` would let
   two people opening the same report see different flags.
 - **Uncategorized spend is a line, not an omission.** The category lines have to
@@ -605,11 +610,46 @@ report can't reorder) and `service.cash_on_hand` (cumulative net cash through a
 date, factored out of `compute_period_kpis` so a report's closing cash is the
 same number the runway was divided from).
 
+### PDF export (8.4, FR-7.4)
+
+`reports/pdf.py` turns a generated report into bytes. It **renders and nothing
+else** — no DB session, no engine imports, no arithmetic on money beyond picking
+a colour by sign — so a figure that is wrong in a PDF is wrong upstream, and the
+"reports assemble, they never calculate" property holds for the artefact that
+actually leaves the building.
+
+- **An export is its JSON sibling plus a renderer.** Each `/pdf` route runs the
+  *same* `reports.service` generator as the screen route, so the two cannot
+  disagree. `tests/test_report_pdf.py` reads the generated PDF's text back with
+  `pypdf` and asserts its figures are literally the strings the JSON endpoint
+  returned.
+- **Nothing is stored.** The PDF is rendered into a buffer and returned; no file
+  is written and no `reports` row is created. See `database/schema.md` §10.
+- **Amounts are drawn through `core/formatting.py`**, the mirror of the
+  frontend's `lib/format.ts`, so a rupee reads the same on screen and on paper.
+- **A font is bundled, and has to be.** ReportLab's built-in Type 1 faces are
+  WinAnsi-encoded and have **no U+20B9** — an INR report in Helvetica draws every
+  rupee sign as a black box. `reports/fonts/` ships DejaVu Sans (upstream 2.37,
+  Bitstream Vera licence included). A test asserts the rupee survives a
+  render-and-read round trip, because losing it would still produce a *valid*
+  PDF.
+- **Tiles state a magnitude with the exact figure beneath** (`₹4.2L/mo` over
+  `₹4,21,573.50/mo`): A4 divided five ways leaves ~83pt per tile, and a
+  rupee-exact lakh-scale figure wraps mid-number at tile size. A **negative burn
+  rate is stated as a surplus**, exactly as the dashboard's `KpiCards` does it.
+
 ```bash
 curl -s "localhost:8000/api/v1/reports/monthly?company_id=$COMPANY_ID&month=2026-07" \
   -H "Authorization: Bearer $TOKEN"
 
 curl -s "localhost:8000/api/v1/reports/board?company_id=$COMPANY_ID&period=year" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -s "localhost:8000/api/v1/reports/investor?company_id=$COMPANY_ID" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Any of the three, rendered — -OJ saves under the server's filename.
+curl -s -OJ "localhost:8000/api/v1/reports/board/pdf?company_id=$COMPANY_ID&period=year" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

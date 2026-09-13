@@ -110,3 +110,17 @@ def format_months(value: Decimal | float | str) -> str:
     runway tile exactly, trailing zero included, so the two never look like
     different numbers."""
     return str(Decimal(str(value)).quantize(_TENTH, rounding=ROUND_HALF_UP))
+
+
+def format_month_key(key: str) -> str:
+    """`"2026-01"` → `'Jan 2026'`. Mirrors `lib/format.ts::monthLong`.
+
+    The report payloads carry months as `YYYY-MM` strings rather than
+    `(year, month)` pairs, so a PDF drawing its own month labels (task 8.4)
+    needs this rather than `format_month`. A key it can't parse is returned
+    unchanged — a label is not worth a 500."""
+    year, _, month = key.partition("-")
+    try:
+        return format_month(int(year), int(month))
+    except (ValueError, IndexError):
+        return key

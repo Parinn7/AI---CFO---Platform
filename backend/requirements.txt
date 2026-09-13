@@ -28,6 +28,14 @@ PyJWT>=2.10.1            # JWT access tokens for session auth (FR-1.2)
 # here for the test client; from 7.4 it is a runtime dependency too.
 httpx>=0.28.1
 
+# Reporting (Phase 8.4 — PDF export, FR-7.4)
+# Pure-Python renderer with no system libraries behind it, which is what makes
+# it deployable in Phase 10 without a custom build image (WeasyPrint et al.
+# need cairo/pango installed on the host). The ₹ glyph does NOT exist in
+# ReportLab's built-in Type 1 faces, so app/reports/fonts/ ships DejaVu Sans —
+# see app/reports/pdf.py.
+reportlab>=4.2.5
+
 # Data input (Phase 3.2 — CSV/XLSX upload + parsing)
 python-multipart>=0.0.18  # FastAPI multipart/form-data (file uploads)
 openpyxl>=3.1.5           # XLSX parsing
@@ -36,3 +44,6 @@ openpyxl>=3.1.5           # XLSX parsing
 pytest>=8.3.4
 pytest-asyncio>=0.24.0   # async test support for auth endpoint tests
 aiosqlite>=0.20.0        # in-memory async DB for auth endpoint tests (no live Postgres needed)
+pypdf>=5.1.0             # reads generated PDFs back in the 8.4 export tests, so a PDF's
+                         # figures can be asserted against its JSON sibling's rather than
+                         # the tests only checking that some bytes came back

@@ -149,7 +149,10 @@ Precomputed KPI values, stored per company per period. This is the table the AI 
 - **Access is scoped by company ownership, not `chat_sessions.user_id`.** The company carries the financial data, so its owner is who may read discussions of it; `user_id` records authorship.
 - Deleting a session cascades to its messages; the company's financial data is untouched.
 
-## 10. `reports`
+## 10. `reports` — *not built (retired in 8.4)*
+
+The original design below is kept for the record; see the note under it for why
+it was never created. **This table does not exist in any migration.**
 
 | Column | Type | Notes |
 |---|---|---|
@@ -161,20 +164,29 @@ Precomputed KPI values, stored per company per period. This is the table the AI 
 | file_path | text | location of generated PDF |
 | generated_at | timestamptz | |
 
-**Implementation note (task 8.1): this table does not exist yet — deliberately.**
-Phase 8 opens with the Monthly Financial Report (FR-7.1), which is **generated
-on demand and not stored**: `GET /api/v1/reports/monthly` assembles it from the
-Financial Engine on every request. Every column above except `file_path` is
-already derivable from the request, and `file_path` is a record of an exported
-*file* — until PDF export (task 8.4) produces one, there is nothing to point at,
-and a row with a null `file_path` would record only that someone once looked at
-a screen.
+**Implementation note (task 8.4): this table is retired — it will not be built.**
+It was deferred in 8.1 on the grounds that `file_path` is a record of an
+exported *file*, and that the table should land with the export that needed it.
+**8.4 built that export and it turned out not to need one.**
 
-The deeper reason is staleness. A report is a pure function of the company's
-transactions, so regenerating it is one round of aggregation and can never
-disagree with the data it describes; a stored copy can. The table lands with
-the export that needs it, and `type` is already fixed by
-`reports.schemas.REPORT_TYPE_MONTHLY` and its siblings.
+PDF export is `GET /api/v1/reports/{monthly,board,investor}/pdf`: the report is
+rendered into a buffer and returned as the response body. No file is written to
+disk, so there is no path to store, and every other column above is derivable
+from the request that asked for it. A row would record only that someone once
+downloaded something.
+
+The deeper reason is the one that was true in 8.1 and is still true. A report is
+a pure function of the company's transactions, so regenerating it is one round
+of aggregation and can never disagree with the data it describes; a stored copy
+can. Storing PDFs would introduce exactly the staleness the on-demand design
+avoids — a downloaded board pack that no longer matches the ledger it claims to
+describe — and in Phase 10 a `file_path` would point into an ephemeral container
+filesystem that does not survive a redeploy, making object storage a prerequisite
+for a feature nobody asked for.
+
+`type` remains fixed in code by `reports.schemas.REPORT_TYPE_MONTHLY` and its
+siblings, which is where it was always doing its real work. The three report
+types are a closed set in the schema layer, not rows in a table.
 
 ---
 
@@ -188,8 +200,10 @@ companies ──1:N── upload_batches ──1:N── transactions
 companies ──1:N── kpi_snapshots
 companies ──1:N── scenarios ──references──> kpi_snapshots (baseline)
 companies ──1:N── chat_sessions ──1:N── chat_messages ──references──> kpi_snapshots (context)
-companies ──1:N── reports
 ```
+
+(No `reports` relationship: reports are generated on demand and never stored —
+see §10.)
 
 ## Indexing Notes (for Claude Code implementation)
 

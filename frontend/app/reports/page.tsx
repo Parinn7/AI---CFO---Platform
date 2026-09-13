@@ -11,8 +11,8 @@
  * are reused here rather than reimplemented: a report and a dashboard that draw
  * the same month differently are two claims about one period.
  *
- * PDF export is task 8.4, so there is no export button yet — a dead one would
- * be worse than none.
+ * "Download PDF" (8.4) exports exactly the month on screen: the button closes
+ * over `report.month`, so the file and the page can't describe different months.
  *
  * The header, the tabs between report types, the category breakdown and the
  * empty states moved into `ReportHeader`/`ReportSections` in 8.2, when the board
@@ -25,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { RevenueExpenseChart } from "@/components/DashboardCharts";
+import { DownloadReportButton } from "@/components/DownloadReportButton";
 import { KpiCards } from "@/components/KpiCards";
 import { ReportHeader } from "@/components/ReportHeader";
 import { CategoryBreakdown, ReportEmptyState } from "@/components/ReportSections";
@@ -33,6 +34,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
   detectAnomalies,
+  downloadMonthlyReport,
   getCashFlow,
   getMonthlyReport,
   listCompanies,
@@ -184,6 +186,15 @@ export default function ReportsPage() {
               {report.transaction_count} transaction
               {report.transaction_count === 1 ? "" : "s"}
             </span>
+            {/* Exports the month currently selected, not the default one. */}
+            <div className="ml-auto">
+              <DownloadReportButton
+                disabled={busy}
+                download={() =>
+                  downloadMonthlyReport(company.id, token!, report.month)
+                }
+              />
+            </div>
           </div>
 
           {report.transaction_count === 0 && (

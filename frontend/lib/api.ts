@@ -1093,3 +1093,109 @@ export function getInvestorSummary(
     token,
   );
 }
+
+/* --- PDF export (8.4, FR-7.4) --- */
+
+/** A downloaded file: the bytes, and the name the server gave them. */
+export type DownloadedFile = { blob: Blob; filename: string };
+
+/** Pull the filename out of a `Content-Disposition` header.
+ *
+ * The backend sends `attachment; filename="Acme-Monthly-Report-2026-07.pdf"`,
+ * and that name is the only thing identifying the file once it's sitting in a
+ * downloads folder. The header is only readable cross-origin because the
+ * backend also sends `Access-Control-Expose-Headers`; `fallback` covers the
+ * case where a proxy strips it anyway. */
+function filenameFrom(disposition: string | null, fallback: string): string {
+  const match = disposition?.match(/filename="?([^";]+)"?/);
+  return match?.[1] ?? fallback;
+}
+
+/** GET a binary file with auth, as a blob.
+ *
+ * Not `apiGet`: the response is a PDF, not JSON, so `res.json()` would throw on
+ * the bytes. Errors still come back as a JSON `detail`, so those are parsed the
+ * normal way — a 404 here means "no financial data yet", exactly as it does on
+ * the report endpoints themselves. */
+export async function apiDownload(
+  path: string,
+  fallbackName: string,
+  token?: string,
+): Promise<DownloadedFile> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await errorMessage(res));
+  }
+  return {
+    blob: await res.blob(),
+    filename: filenameFrom(res.headers.get("Content-Disposition"), fallbackName),
+  };
+}
+
+/** Hand a downloaded file to the browser as a save.
+ *
+ * The file arrives over `fetch` because the endpoint needs an `Authorization`
+ * header, which a plain `<a href>` navigation can't send — so the save has to
+ * be driven from a temporary object URL rather than a link to the API. The URL
+ * is revoked straight after; holding it keeps the whole blob in memory. */
+export function saveFile({ blob, filename }: DownloadedFile): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** The Monthly Financial Report as a PDF (FR-7.4). Same arguments, same
+ * behaviour and the same `404` as `getMonthlyReport` — it is that report,
+ * rendered rather than serialised. */
+export function downloadMonthlyReport(
+  companyId: string,
+  token: string,
+  month?: string,
+): Promise<DownloadedFile> {
+  const params = new URLSearchParams({ company_id: companyId });
+  if (month) params.set("month", month);
+  return apiDownload(
+    `/api/v1/reports/monthly/pdf?${params.toString()}`,
+    `monthly-report${month ? `-${month}` : ""}.pdf`,
+    token,
+  );
+}
+
+/** The Board Report as a PDF (FR-7.4). */
+export function downloadBoardReport(
+  companyId: string,
+  token: string,
+  period: BoardPeriod,
+  endMonth?: string,
+): Promise<DownloadedFile> {
+  const params = new URLSearchParams({ company_id: companyId, period });
+  if (endMonth) params.set("end_month", endMonth);
+  return apiDownload(
+    `/api/v1/reports/board/pdf?${params.toString()}`,
+    `board-report-${period}.pdf`,
+    token,
+  );
+}
+
+/** The Investor Readiness Summary as a PDF (FR-7.4). */
+export function downloadInvestorSummary(
+  companyId: string,
+  token: string,
+  endMonth?: string,
+): Promise<DownloadedFile> {
+  const params = new URLSearchParams({ company_id: companyId });
+  if (endMonth) params.set("end_month", endMonth);
+  return apiDownload(
+    `/api/v1/reports/investor/pdf?${params.toString()}`,
+    "investor-readiness.pdf",
+    token,
+  );
+}

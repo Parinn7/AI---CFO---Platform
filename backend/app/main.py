@@ -53,6 +53,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # The report PDF downloads (8.4) send the file's name in
+    # `Content-Disposition`, and a cross-origin page can read the response body
+    # but *not* its headers unless they're exposed — without this the frontend
+    # gets the bytes and has to invent a filename for them.
+    expose_headers=["Content-Disposition"],
 )
 
 api_router = APIRouter(prefix=settings.api_v1_prefix)

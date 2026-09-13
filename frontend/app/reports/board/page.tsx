@@ -13,7 +13,9 @@
  * charts and the shared report sections are reused rather than reimplemented,
  * so a board pack and a dashboard can't draw one period two ways.
  *
- * PDF export is task 8.4; there is deliberately no export button yet.
+ * "Download PDF" (8.4) exports the period currently on screen — the button
+ * closes over the controls' state, so the file and the page can't describe
+ * different windows.
  */
 
 "use client";
@@ -23,6 +25,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { NetCashFlowChart, RevenueExpenseChart } from "@/components/DashboardCharts";
+import { DownloadReportButton } from "@/components/DownloadReportButton";
 import { KpiCards } from "@/components/KpiCards";
 import { ReportHeader } from "@/components/ReportHeader";
 import {
@@ -38,6 +41,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
   detectAnomalies,
+  downloadBoardReport,
   getBoardReport,
   getCashFlow,
   listCompanies,
@@ -238,6 +242,21 @@ export default function BoardReportPage() {
               {report.current.transaction_count} transaction
               {report.current.transaction_count === 1 ? "" : "s"}
             </span>
+            {/* Exports the window currently on screen — the same period and
+                end month the controls above are set to. */}
+            <div className="ml-auto">
+              <DownloadReportButton
+                disabled={busy}
+                download={() =>
+                  downloadBoardReport(
+                    company.id,
+                    token!,
+                    period,
+                    report.current.end_month,
+                  )
+                }
+              />
+            </div>
           </div>
 
           {report.current.transaction_count === 0 && (

@@ -18,7 +18,9 @@
  * grade would imply a precision this data can't support and invite reading it
  * as a valuation.
  *
- * PDF export is task 8.4; there is deliberately no export button yet.
+ * "Download PDF" (8.4) exports the period currently on screen — the button
+ * closes over the controls' state, so the file and the page can't describe
+ * different windows.
  */
 
 "use client";
@@ -28,6 +30,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { NetCashFlowChart, RevenueExpenseChart } from "@/components/DashboardCharts";
+import { DownloadReportButton } from "@/components/DownloadReportButton";
 import { ReportHeader } from "@/components/ReportHeader";
 import {
   CategoryBreakdown,
@@ -41,6 +44,7 @@ import { StatCard } from "@/components/StatCard";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ApiError,
+  downloadInvestorSummary,
   getCashFlow,
   getInvestorSummary,
   listCompanies,
@@ -254,6 +258,20 @@ export default function InvestorReadinessPage() {
               {report.months_of_history} month
               {report.months_of_history === 1 ? "" : "s"} of history on record
             </span>
+            {/* Exports the year currently on screen, checks and thresholds
+                included — the same document, rendered. */}
+            <div className="ml-auto">
+              <DownloadReportButton
+                disabled={busy}
+                download={() =>
+                  downloadInvestorSummary(
+                    company.id,
+                    token!,
+                    report.window.end_month,
+                  )
+                }
+              />
+            </div>
           </div>
 
           {/* The weakest link, said plainly. Deliberately not a score. */}
